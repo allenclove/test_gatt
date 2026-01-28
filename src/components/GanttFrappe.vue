@@ -114,7 +114,7 @@
             :style="getTaskStyle(task)"
             @mouseenter="showTooltip($event, task)"
             @mouseleave="hideTooltip"
-            @click="$emit('task-click', task)"
+            @click="handleTaskClick($event, task)"
           >
             <div class="task-content">
               <span class="task-order-no">{{ task.orderNo || 'N/A' }}</span>
@@ -135,6 +135,7 @@
     <div
       v-if="tooltip.visible"
       class="task-tooltip"
+      :class="{ 'tooltip-hovered': !tooltipPinned && tooltip.visible, 'tooltip-pinned-state': tooltipPinned }"
       :style="{
         left: tooltip.x + 'px',
         top: tooltip.y + 'px'
@@ -142,8 +143,21 @@
       @mouseenter="tooltipHovered = true"
       @mouseleave="handleTooltipMouseLeave"
     >
-      <div class="tooltip-header">{{ tooltip.task?.name }}</div>
-      <div class="tooltip-body">
+      <div class="tooltip-header">
+        <span>{{ tooltip.task?.name }}</span>
+        <button
+          v-if="tooltipPinned"
+          class="tooltip-close-btn"
+          @click.stop="closeTooltip"
+          title="关闭"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <div class="tooltip-body" :class="{ 'tooltip-pinned': tooltipPinned }">
         <div class="tooltip-row">
           <span class="tooltip-label">单号:</span>
           <span class="tooltip-value">{{ tooltip.task?.orderNo }}</span>
@@ -263,7 +277,25 @@ const tooltip = ref({
   task: null
 })
 const tooltipHovered = ref(false)
+const tooltipPinned = ref(false) // 固定状态
+const taskBarHovered = ref(false) // 任务条悬停状态
 let hideTooltipTimer = null
+
+// 全局点击处理 - 点击其他区域关闭固定tooltip
+const handleGlobalClick = (event) => {
+  if (!tooltipPinned.value || !tooltip.value.visible) return
+
+  // 检查点击是否在tooltip内或任务条上
+  const target = event.target
+  const isTooltip = target.closest('.task-tooltip')
+  const isTaskBar = target.closest('.task-bar')
+
+  // 如果点击的是tooltip或任务条，不关闭
+  if (isTooltip || isTaskBar) return
+
+  // 点击其他区域，关闭tooltip
+  closeTooltip()
+}
 
 // 从父组件获取zones
 watch(() => props.tasks, () => {
@@ -456,32 +488,98 @@ const getStatusClass = (progress) => {
 
 // 显示tooltip
 const showTooltip = (event, task) => {
-  const rect = event.target.getBoundingClientRect()
+  // 如果已固定，不显示hover tooltip
+  if (tooltipPinned.value) {
+    return
+  }
+
+  // 清除任何待处理的隐藏定时器
+  if (hideTooltipTimer) {
+    clearTimeout(hideTooltipTimer)
+    hideTooltipTimer = null
+  }
+
+  // 标记为在任务条上悬停
+  taskBarHovered.value = true
+
+  // 使用 currentTarget 确保获取的是 task-bar 元素
+  const rect = event.currentTarget.getBoundingClientRect()
   tooltip.value = {
     visible: true,
-    x: rect.right + 10,
+    x: rect.right - 5, // 让tooltip与任务条有5px重叠，确保鼠标连续移动
     y: rect.top,
     task
   }
 }
 
-// 隐藏tooltip（延迟执行，允许鼠标移动到tooltip上）
+// 处理任务条点击（固定tooltip）
+const handleTaskClick = (event, task) => {
+  event.stopPropagation()
+
+  // 点击即固定，即使点击同一个任务也保持固定状态
+  const rect = event.currentTarget.getBoundingClientRect()
+  tooltip.value = {
+    visible: true,
+    x: rect.right - 5, // 让tooltip与任务条有5px重叠
+    y: rect.top,
+    task
+  }
+  tooltipPinned.value = true
+
+  // 同时触发父组件的点击事件
+  emit('task-click', task)
+}
+
+// 隐藏tooltip（当鼠标离开任务条时调用）
 const hideTooltip = () => {
+  // 标记已离开任务条
+  taskBarHovered.value = false
+
+  // 如果已固定，不隐藏
+  if (tooltipPinned.value) {
+    return
+  }
+
   // 清除之前的定时器
   if (hideTooltipTimer) {
     clearTimeout(hideTooltipTimer)
   }
-  // 延迟100ms隐藏，给用户时间移动到tooltip上
+
+  // 延迟检查，如果不在tooltip上也不在任务条上，则隐藏
   hideTooltipTimer = setTimeout(() => {
-    if (!tooltipHovered.value) {
+    if (!tooltipHovered.value && !taskBarHovered.value) {
       tooltip.value.visible = false
     }
-  }, 100)
+  }, 300)
 }
 
 // tooltip鼠标离开处理
 const handleTooltipMouseLeave = () => {
   tooltipHovered.value = false
+
+  // 如果已固定，不隐藏
+  if (tooltipPinned.value) {
+    return
+  }
+
+  // 清除之前的定时器
+  if (hideTooltipTimer) {
+    clearTimeout(hideTooltipTimer)
+  }
+
+  // 延迟检查，如果不在tooltip上也不在任务条上，则隐藏
+  hideTooltipTimer = setTimeout(() => {
+    if (!tooltipHovered.value && !taskBarHovered.value) {
+      tooltip.value.visible = false
+    }
+  }, 300)
+}
+
+// 关闭tooltip
+const closeTooltip = () => {
+  tooltipPinned.value = false
+  tooltipHovered.value = false
+  taskBarHovered.value = false
   tooltip.value.visible = false
   if (hideTooltipTimer) {
     clearTimeout(hideTooltipTimer)
@@ -490,7 +588,12 @@ const handleTooltipMouseLeave = () => {
 
 // 处理tooltip中的操作按钮点击
 const handleTooltipAction = (action, task) => {
-  hideTooltip()
+  // 取消固定状态并隐藏tooltip
+  tooltipPinned.value = false
+  tooltipHovered.value = false
+  taskBarHovered.value = false
+  tooltip.value.visible = false
+
   emit('task-action', { action, task })
 }
 
@@ -513,11 +616,18 @@ let timeUpdateInterval = null
 onMounted(() => {
   updateCurrentTimeLine()
   timeUpdateInterval = setInterval(updateCurrentTimeLine, 60000)
+  // 添加全局点击监听，用于关闭固定tooltip
+  document.addEventListener('click', handleGlobalClick)
 })
 
 onUnmounted(() => {
   if (timeUpdateInterval) {
     clearInterval(timeUpdateInterval)
+  }
+  // 移除全局点击监听
+  document.removeEventListener('click', handleGlobalClick)
+  if (hideTooltipTimer) {
+    clearTimeout(hideTooltipTimer)
   }
 })
 
@@ -876,6 +986,34 @@ watch([viewMode, () => props.currentDate], () => {
   min-width: 200px;
   border: 1px solid #e5e7eb;
   animation: tooltipFadeIn 0.15s ease-out;
+  /* 增加透明的点击区域，提升hover体验 */
+  margin-left: -15px;
+  margin-top: -10px;
+  margin-bottom: -10px;
+  padding: 10px 0 10px 15px;
+}
+
+/* 悬停状态 - 置顶显示 */
+.task-tooltip.tooltip-hovered {
+  z-index: 10001;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.2);
+}
+
+/* 固定状态 - 更高优先级 */
+.task-tooltip.tooltip-pinned-state {
+  z-index: 10002;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.25);
+}
+
+/* 使用伪元素创建透明的"桥梁"，连接任务条和tooltip */
+.task-tooltip::before {
+  content: '';
+  position: absolute;
+  left: -20px;
+  top: 10%;
+  width: 20px;
+  height: 80%;
+  background: transparent;
 }
 
 @keyframes tooltipFadeIn {
@@ -897,9 +1035,18 @@ watch([viewMode, () => props.currentDate], () => {
   font-weight: 600;
   color: #1f2937;
   border-radius: 8px 8px 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  /* 抵消父元素的padding: 父元素是 10px 0 10px 15px */
+  margin: -10px 0 0 -15px;
+  padding: 10px 12px;
 }
 
 .tooltip-body {
+  padding: 10px 12px;
+  /* 抵消父元素的padding: 父元素是 10px 0 10px 15px */
+  margin: 0 0 -10px -15px;
   padding: 10px 12px;
 }
 
@@ -992,6 +1139,43 @@ watch([viewMode, () => props.currentDate], () => {
 
 .tooltip-btn-success:hover {
   background: #10b981;
+  color: white;
+}
+
+/* Tooltip 固定状态样式 */
+.tooltip-body.tooltip-pinned {
+  position: relative;
+}
+
+.tooltip-body.tooltip-pinned::before {
+  content: '已固定';
+  position: absolute;
+  top: -8px;
+  right: 0;
+  background: #f59e0b;
+  color: white;
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+/* Tooltip 关闭按钮 */
+.tooltip-close-btn {
+  padding: 2px 4px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: #6b7280;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.tooltip-close-btn:hover {
+  background: #ef4444;
   color: white;
 }
 </style>
