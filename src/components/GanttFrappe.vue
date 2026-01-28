@@ -112,6 +112,8 @@
             class="task-bar"
             :class="task.customClass"
             :style="getTaskStyle(task)"
+            @mouseenter="showTooltip($event, task)"
+            @mouseleave="hideTooltip"
             @click="$emit('task-click', task)"
           >
             <div class="task-content">
@@ -125,6 +127,69 @@
             <div v-if="task.orderStatus || task.progress > 0" class="status-indicator" :style="{ background: getStatusColor(task) }" :title="getStatusTitle(task)"></div>
             <div class="task-progress" :style="{ width: task.progress + '%' }"></div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tooltip -->
+    <div
+      v-if="tooltip.visible"
+      class="task-tooltip"
+      :style="{
+        left: tooltip.x + 'px',
+        top: tooltip.y + 'px'
+      }"
+    >
+      <div class="tooltip-header">{{ tooltip.task?.name }}</div>
+      <div class="tooltip-body">
+        <div class="tooltip-row">
+          <span class="tooltip-label">单号:</span>
+          <span class="tooltip-value">{{ tooltip.task?.orderNo }}</span>
+        </div>
+        <div class="tooltip-row">
+          <span class="tooltip-label">产品:</span>
+          <span class="tooltip-value">{{ tooltip.task?.productName }}</span>
+        </div>
+        <div class="tooltip-row">
+          <span class="tooltip-label">时间:</span>
+          <span class="tooltip-value">{{ getTaskTimeRange(tooltip.task) }}</span>
+        </div>
+        <div class="tooltip-row">
+          <span class="tooltip-label">进度:</span>
+          <span class="tooltip-value">{{ tooltip.task?.progress }}%</span>
+        </div>
+        <div class="tooltip-row">
+          <span class="tooltip-label">状态:</span>
+          <span class="tooltip-value" :class="getStatusClass(tooltip.task?.progress)">
+            {{ getStatusText(tooltip.task?.progress) }}
+          </span>
+        </div>
+        <!-- 自定义功能按钮 -->
+        <div class="tooltip-actions">
+          <button class="tooltip-btn tooltip-btn-primary" @click.stop="handleTooltipAction('edit', tooltip.task)">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+            </svg>
+            编辑
+          </button>
+          <button class="tooltip-btn tooltip-btn-danger" @click.stop="handleTooltipAction('delete', tooltip.task)">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            </svg>
+            删除
+          </button>
+          <button class="tooltip-btn tooltip-btn-success" @click.stop="handleTooltipAction('detail', tooltip.task)">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+              <line x1="16" y1="13" x2="8" y2="13"></line>
+              <line x1="16" y1="17" x2="8" y2="17"></line>
+              <polyline points="10 9 9 9 8 9"></polyline>
+            </svg>
+            详情
+          </button>
         </div>
       </div>
     </div>
@@ -173,7 +238,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['task-click', 'task-updated', 'date-changed'])
+const emit = defineEmits(['task-click', 'task-updated', 'date-changed', 'task-action'])
 
 const viewModes = [
   { key: 'minute', label: '30分钟', slotMinutes: 30 },
@@ -187,6 +252,14 @@ const zones = ref([])
 const rowHeight = 50
 const headerHeight = 50
 const columnWidth = 60
+
+// Tooltip状态
+const tooltip = ref({
+  visible: false,
+  x: 0,
+  y: 0,
+  task: null
+})
 
 // 从父组件获取zones
 watch(() => props.tasks, () => {
@@ -356,6 +429,47 @@ const getStatusTitle = (task) => {
   if (task.progress === 0) return orderStatusMap['pending'].label
   if (task.progress === 100) return orderStatusMap['completed'].label
   return orderStatusMap['in-production'].label
+}
+
+const getTaskTimeRange = (task) => {
+  if (!task) return ''
+  const startTime = task.start.split('T')[1]?.substring(0, 5) || ''
+  const endTime = task.end.split('T')[1]?.substring(0, 5) || ''
+  return `${startTime} - ${endTime}`
+}
+
+const getStatusText = (progress) => {
+  if (progress === 0) return '待开始'
+  if (progress === 100) return '已完成'
+  return '进行中'
+}
+
+const getStatusClass = (progress) => {
+  if (progress === 0) return 'status-pending'
+  if (progress === 100) return 'status-completed'
+  return 'status-progress'
+}
+
+// 显示tooltip
+const showTooltip = (event, task) => {
+  const rect = event.target.getBoundingClientRect()
+  tooltip.value = {
+    visible: true,
+    x: rect.right + 10,
+    y: rect.top,
+    task
+  }
+}
+
+// 隐藏tooltip
+const hideTooltip = () => {
+  tooltip.value.visible = false
+}
+
+// 处理tooltip中的操作按钮点击
+const handleTooltipAction = (action, task) => {
+  hideTooltip()
+  emit('task-action', { action, task })
 }
 
 const changeViewMode = (mode) => {
@@ -727,5 +841,135 @@ watch([viewMode, () => props.currentDate], () => {
 .tasks-panel::-webkit-scrollbar-thumb:hover,
 .zones-panel::-webkit-scrollbar-thumb:hover {
   background: #9ca3af;
+}
+
+/* Tooltip */
+.task-tooltip {
+  position: fixed;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+  padding: 0;
+  z-index: 1000;
+  min-width: 200px;
+  border: 1px solid #e5e7eb;
+  animation: tooltipFadeIn 0.15s ease-out;
+}
+
+@keyframes tooltipFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.tooltip-header {
+  padding: 10px 12px;
+  background: #f3f4f6;
+  border-bottom: 1px solid #e5e7eb;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f2937;
+  border-radius: 8px 8px 0 0;
+}
+
+.tooltip-body {
+  padding: 10px 12px;
+}
+
+.tooltip-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.tooltip-row:last-child {
+  margin-bottom: 0;
+}
+
+.tooltip-label {
+  color: #6b7280;
+  margin-right: 16px;
+}
+
+.tooltip-value {
+  color: #1f2937;
+  font-weight: 500;
+}
+
+.tooltip-value.status-pending {
+  color: #F57C00;
+}
+
+.tooltip-value.status-progress {
+  color: #1976D2;
+}
+
+.tooltip-value.status-completed {
+  color: #388E3C;
+}
+
+.tooltip-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.tooltip-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: white;
+  color: #4b5563;
+}
+
+.tooltip-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.tooltip-btn-primary {
+  border-color: #3b82f6;
+  color: #3b82f6;
+}
+
+.tooltip-btn-primary:hover {
+  background: #3b82f6;
+  color: white;
+}
+
+.tooltip-btn-danger {
+  border-color: #ef4444;
+  color: #ef4444;
+}
+
+.tooltip-btn-danger:hover {
+  background: #ef4444;
+  color: white;
+}
+
+.tooltip-btn-success {
+  border-color: #10b981;
+  color: #10b981;
+}
+
+.tooltip-btn-success:hover {
+  background: #10b981;
+  color: white;
 }
 </style>

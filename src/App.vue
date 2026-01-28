@@ -208,6 +208,7 @@
             @task-updated="handleTaskUpdate"
             @task-click="handleTaskClick"
             @date-changed="handleDateChange"
+            @task-action="handleTaskAction"
           />
           <div v-else class="empty-state">
             <p>暂无任务数据</p>
@@ -449,6 +450,22 @@ const handleTaskClick = (task) => {
 
 const handleDateChange = (date) => {
   currentDate.value = date
+}
+
+const handleTaskAction = ({ action, task }) => {
+  switch (action) {
+    case 'edit':
+      editTask(task)
+      break
+    case 'delete':
+      deleteTask(task.id)
+      break
+    case 'detail':
+      selectedTaskId.value = task.id
+      // 可以在这里添加显示详情的逻辑，例如打开详情弹窗
+      console.log('查看详情:', task)
+      break
+  }
 }
 
 const editTask = (task) => {
