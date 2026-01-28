@@ -169,10 +169,30 @@
 
         <!-- 甘特图组件切换 -->
         <div class="gantt-wrapper">
+          <!-- 筛选栏 -->
+          <div class="filter-bar">
+            <div class="filter-section">
+              <span class="filter-title">订单类型:</span>
+              <label v-for="type in orderTypes" :key="type.key" class="filter-checkbox">
+                <input type="checkbox" :value="type.key" v-model="selectedOrderTypes">
+                {{ type.label }}
+              </label>
+            </div>
+            <div class="filter-section">
+              <span class="filter-title">订单状态:</span>
+              <label v-for="status in orderStatuses" :key="status.key" class="filter-checkbox">
+                <input type="checkbox" :value="status.key" v-model="selectedOrderStatuses">
+                {{ status.label }}
+              </label>
+            </div>
+          </div>
+
           <GanttCustom
             v-if="ganttType === 'custom' && tasks.length > 0"
             :tasks="tasks"
             :view-mode="viewMode"
+            :filter-types="selectedOrderTypes"
+            :filter-statuses="selectedOrderStatuses"
             @task-updated="handleTaskUpdate"
             @task-click="handleTaskClick"
             @date-changed="handleDateChange"
@@ -181,6 +201,8 @@
             v-else-if="ganttType === 'frappe' && tasks.length > 0"
             :tasks="tasks"
             :view-mode="viewMode"
+            :filter-types="selectedOrderTypes"
+            :filter-statuses="selectedOrderStatuses"
             @task-updated="handleTaskUpdate"
             @task-click="handleTaskClick"
             @date-changed="handleDateChange"
@@ -267,6 +289,25 @@ const showAddTask = ref(false)
 const editingTask = ref(null)
 const activeFilter = ref('all')
 
+// 筛选状态
+const selectedOrderTypes = ref(['normal', 'urgent', 'expedited'])
+const selectedOrderStatuses = ref(['pending', 'in-production', 'completed', 'delayed'])
+
+// 订单类型定义
+const orderTypes = [
+  { key: 'normal', label: '普通订单' },
+  { key: 'urgent', label: '加急订单' },
+  { key: 'expedited', label: '特急订单' }
+]
+
+// 订单状态定义
+const orderStatuses = [
+  { key: 'pending', label: '待开始' },
+  { key: 'in-production', label: '生产中' },
+  { key: 'completed', label: '已完成' },
+  { key: 'delayed', label: '已延期' }
+]
+
 const viewModes = [
   { key: 'day', label: '日视图' },
   { key: 'week', label: '周视图' },
@@ -297,6 +338,9 @@ const generateMockTasks = () => {
     { type: 'quality-task', name: '质检工序', count: 30 }
   ]
 
+  const orderTypeOptions = ['normal', 'urgent', 'expedited']
+  const orderStatusOptions = ['pending', 'in-production', 'completed', 'delayed']
+
   const tasks = []
   const zoneCount = 12
   let taskId = 1
@@ -320,6 +364,17 @@ const generateMockTasks = () => {
       // 随机进度
       const progress = Math.random() > 0.3 ? Math.floor(Math.random() * 100) : 0
 
+      // 随机订单类型和状态
+      const orderType = type === 'order-task' ? orderTypeOptions[Math.floor(Math.random() * orderTypeOptions.length)] : 'normal'
+      let orderStatus
+      if (progress === 0) {
+        orderStatus = 'pending'
+      } else if (progress === 100) {
+        orderStatus = 'completed'
+      } else {
+        orderStatus = orderStatusOptions[Math.floor(Math.random() * 3)] // pending, in-production, delayed
+      }
+
       // 生成单号
       const orderNo = `SO${(2026000 + taskId).toString().slice(-6)}`
       const productName = `产品-${String.fromCharCode(65 + Math.floor(Math.random() * 6))}${Math.floor(Math.random() * 1000)}`
@@ -329,6 +384,8 @@ const generateMockTasks = () => {
         name: `${typeName}-${orderNo}`,
         orderNo,
         productName,
+        orderType,
+        orderStatus,
         start: `2026-01-28T${startTime}`,
         end: `2026-01-28T${endTime}`,
         progress,
@@ -811,6 +868,43 @@ const formatDateRange = (start, end) => {
   overflow: hidden;
   height: calc(100vh - 280px);
   min-height: 400px;
+}
+
+/* 筛选栏 */
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 12px 16px;
+  background: #f9fafb;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.filter-section {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.filter-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: #4b5563;
+}
+
+.filter-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.filter-checkbox input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
 }
 
 .empty-state {

@@ -15,6 +15,15 @@
           </svg>
         </button>
       </div>
+
+      <!-- 技术方案标签 -->
+      <div class="tech-badge">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 2L2 7l10 5 10-5-10-5 2 7z"></path>
+        </svg>
+        <span>Frappe Gantt库</span>
+      </div>
+
       <div class="view-controls">
         <button
           v-for="mode in viewModes"
@@ -107,7 +116,13 @@
           >
             <div class="task-content">
               <span class="task-order-no">{{ task.orderNo || 'N/A' }}</span>
+              <!-- 订单类型标识 -->
+              <span v-if="task.orderType && task.orderType !== 'normal'" class="order-type-badge" :style="{ background: orderTypeMap[task.orderType]?.color }">
+                {{ orderTypeMap[task.orderType]?.label }}
+              </span>
             </div>
+            <!-- 订单状态指示点 -->
+            <div v-if="task.orderStatus || task.progress > 0" class="status-indicator" :style="{ background: getStatusColor(task) }" :title="getStatusTitle(task)"></div>
             <div class="task-progress" :style="{ width: task.progress + '%' }"></div>
           </div>
         </div>
@@ -143,6 +158,14 @@ const props = defineProps({
   viewMode: {
     type: String,
     default: 'hour'
+  },
+  filterTypes: {
+    type: Array,
+    default: () => ['normal', 'urgent', 'expedited']
+  },
+  filterStatuses: {
+    type: Array,
+    default: () => ['pending', 'in-production', 'completed', 'delayed']
   }
 })
 
@@ -205,11 +228,44 @@ const timeSlots = computed(() => {
   return slots
 })
 
+// 订单类型映射
+const orderTypeMap = {
+  'normal': { label: '普通', color: '#3B82F6' },
+  'urgent': { label: '加急', color: '#EF4444' },
+  'expedited': { label: '特急', color: '#DC2626' }
+}
+
+// 订单状态映射
+const orderStatusMap = {
+  'pending': { label: '待开始', color: '#9CA3AF' },
+  'in-production': { label: '生产中', color: '#3B82F6' },
+  'completed': { label: '已完成', color: '#10B981' },
+  'delayed': { label: '已延期', color: '#EF4444' }
+}
+
 // 计算可见任务
 const visibleTasks = computed(() => {
   return props.tasks.filter(task => {
     const taskDate = task.start.split('T')[0] || task.start
-    return taskDate === currentDate.value && task.zoneId
+    if (taskDate !== currentDate.value) return false
+    if (!task.zoneId) return false
+
+    // 订单类型筛选
+    if (task.orderType && !props.filterTypes.includes(task.orderType)) return false
+
+    // 订单状态筛选 - 根据进度判断状态
+    let taskStatus = 'pending'
+    if (task.progress > 0 && task.progress < 100) {
+      taskStatus = 'in-production'
+    } else if (task.progress === 100) {
+      taskStatus = 'completed'
+    }
+
+    // 如果有orderStatus字段，使用它，否则根据进度推断
+    const effectiveStatus = task.orderStatus || taskStatus
+    if (!props.filterStatuses.includes(effectiveStatus)) return false
+
+    return true
   })
 })
 
@@ -277,6 +333,26 @@ const getTaskStyle = (task) => {
     width: Math.max(width, 40) + 'px',
     height: (rowHeight - 12) + 'px'
   }
+}
+
+const getStatusColor = (task) => {
+  // 如果有orderStatus字段，使用它
+  if (task.orderStatus) {
+    return orderStatusMap[task.orderStatus]?.color || '#9CA3AF'
+  }
+  // 否则根据进度推断
+  if (task.progress === 0) return orderStatusMap['pending'].color
+  if (task.progress === 100) return orderStatusMap['completed'].color
+  return orderStatusMap['in-production'].color
+}
+
+const getStatusTitle = (task) => {
+  if (task.orderStatus) {
+    return orderStatusMap[task.orderStatus]?.label || '未知状态'
+  }
+  if (task.progress === 0) return orderStatusMap['pending'].label
+  if (task.progress === 100) return orderStatusMap['completed'].label
+  return orderStatusMap['in-production'].label
 }
 
 const changeViewMode = (mode) => {
@@ -559,6 +635,43 @@ watch([viewMode, currentDate], () => {
   height: 2px;
   background: rgba(255,255,255,0.6);
   border-radius: 0 0 4px 4px;
+}
+
+/* 订单类型标识 */
+.order-type-badge {
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 600;
+  color: white;
+  margin-left: 4px;
+  text-transform: uppercase;
+}
+
+/* 订单状态指示点 */
+.status-indicator {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.5);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+}
+
+/* 技术标签 */
+.tech-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+  color: white;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  box-shadow: 0 2px 4px rgba(249, 115, 22, 0.3);
 }
 
 .task-bar.order-task {
