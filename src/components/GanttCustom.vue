@@ -139,6 +139,8 @@
         left: tooltip.x + 'px',
         top: tooltip.y + 'px'
       }"
+      @mouseenter="tooltipHovered = true"
+      @mouseleave="handleTooltipMouseLeave"
     >
       <div class="tooltip-header">{{ tooltip.task?.name }}</div>
       <div class="tooltip-body">
@@ -163,6 +165,33 @@
           <span class="tooltip-value" :class="getStatusClass(tooltip.task?.progress)">
             {{ getStatusText(tooltip.task?.progress) }}
           </span>
+        </div>
+        <!-- 自定义功能按钮 -->
+        <div class="tooltip-actions">
+          <button class="tooltip-btn tooltip-btn-primary" @click.stop="handleTooltipAction('edit', tooltip.task)">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+            </svg>
+            编辑
+          </button>
+          <button class="tooltip-btn tooltip-btn-danger" @click.stop="handleTooltipAction('delete', tooltip.task)">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            </svg>
+            删除
+          </button>
+          <button class="tooltip-btn tooltip-btn-success" @click.stop="handleTooltipAction('detail', tooltip.task)">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+              <line x1="16" y1="13" x2="8" y2="13"></line>
+              <line x1="16" y1="17" x2="8" y2="17"></line>
+              <polyline points="10 9 9 9 8 9"></polyline>
+            </svg>
+            详情
+          </button>
         </div>
       </div>
     </div>
@@ -195,7 +224,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['task-click', 'task-updated', 'date-changed'])
+const emit = defineEmits(['task-click', 'task-updated', 'date-changed', 'task-action'])
 
 const viewModes = [
   { key: 'minute', label: '30分钟', slotMinutes: 30 },
@@ -217,6 +246,8 @@ const tooltip = ref({
   y: 0,
   task: null
 })
+const tooltipHovered = ref(false)
+let hideTooltipTimer = null
 
 // 从父组件获取zones
 watch(() => props.tasks, () => {
@@ -418,9 +449,33 @@ const showTooltip = (event, task) => {
   }
 }
 
-// 隐藏tooltip
+// 隐藏tooltip（延迟执行，允许鼠标移动到tooltip上）
 const hideTooltip = () => {
+  // 清除之前的定时器
+  if (hideTooltipTimer) {
+    clearTimeout(hideTooltipTimer)
+  }
+  // 延迟100ms隐藏，给用户时间移动到tooltip上
+  hideTooltipTimer = setTimeout(() => {
+    if (!tooltipHovered.value) {
+      tooltip.value.visible = false
+    }
+  }, 100)
+}
+
+// tooltip鼠标离开处理
+const handleTooltipMouseLeave = () => {
+  tooltipHovered.value = false
   tooltip.value.visible = false
+  if (hideTooltipTimer) {
+    clearTimeout(hideTooltipTimer)
+  }
+}
+
+// 处理tooltip中的操作按钮点击
+const handleTooltipAction = (action, task) => {
+  hideTooltip()
+  emit('task-action', { action, task })
 }
 
 const changeDate = (delta) => {
@@ -844,5 +899,65 @@ watch([viewMode, () => props.currentDate], () => {
 .timeline-panel::-webkit-scrollbar-thumb:hover,
 .zones-panel::-webkit-scrollbar-thumb:hover {
   background: #9ca3af;
+}
+
+/* Tooltip 操作按钮样式 */
+.tooltip-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.tooltip-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: white;
+  color: #4b5563;
+}
+
+.tooltip-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.tooltip-btn-primary {
+  border-color: #3b82f6;
+  color: #3b82f6;
+}
+
+.tooltip-btn-primary:hover {
+  background: #3b82f6;
+  color: white;
+}
+
+.tooltip-btn-danger {
+  border-color: #ef4444;
+  color: #ef4444;
+}
+
+.tooltip-btn-danger:hover {
+  background: #ef4444;
+  color: white;
+}
+
+.tooltip-btn-success {
+  border-color: #10b981;
+  color: #10b981;
+}
+
+.tooltip-btn-success:hover {
+  background: #10b981;
+  color: white;
 }
 </style>

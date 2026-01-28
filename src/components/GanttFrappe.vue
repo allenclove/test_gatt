@@ -139,6 +139,8 @@
         left: tooltip.x + 'px',
         top: tooltip.y + 'px'
       }"
+      @mouseenter="tooltipHovered = true"
+      @mouseleave="handleTooltipMouseLeave"
     >
       <div class="tooltip-header">{{ tooltip.task?.name }}</div>
       <div class="tooltip-body">
@@ -260,6 +262,8 @@ const tooltip = ref({
   y: 0,
   task: null
 })
+const tooltipHovered = ref(false)
+let hideTooltipTimer = null
 
 // 从父组件获取zones
 watch(() => props.tasks, () => {
@@ -461,9 +465,27 @@ const showTooltip = (event, task) => {
   }
 }
 
-// 隐藏tooltip
+// 隐藏tooltip（延迟执行，允许鼠标移动到tooltip上）
 const hideTooltip = () => {
+  // 清除之前的定时器
+  if (hideTooltipTimer) {
+    clearTimeout(hideTooltipTimer)
+  }
+  // 延迟100ms隐藏，给用户时间移动到tooltip上
+  hideTooltipTimer = setTimeout(() => {
+    if (!tooltipHovered.value) {
+      tooltip.value.visible = false
+    }
+  }, 100)
+}
+
+// tooltip鼠标离开处理
+const handleTooltipMouseLeave = () => {
+  tooltipHovered.value = false
   tooltip.value.visible = false
+  if (hideTooltipTimer) {
+    clearTimeout(hideTooltipTimer)
+  }
 }
 
 // 处理tooltip中的操作按钮点击

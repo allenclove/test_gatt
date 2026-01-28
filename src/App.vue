@@ -197,6 +197,7 @@
             @task-updated="handleTaskUpdate"
             @task-click="handleTaskClick"
             @date-changed="handleDateChange"
+            @task-action="handleTaskAction"
           />
           <GanttFrappe
             v-else-if="ganttType === 'frappe' && tasks.length > 0"
