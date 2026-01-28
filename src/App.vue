@@ -191,6 +191,7 @@
             v-if="ganttType === 'custom' && tasks.length > 0"
             :tasks="tasks"
             :view-mode="viewMode"
+            :current-date="currentDate"
             :filter-types="selectedOrderTypes"
             :filter-statuses="selectedOrderStatuses"
             @task-updated="handleTaskUpdate"
@@ -201,6 +202,7 @@
             v-else-if="ganttType === 'frappe' && tasks.length > 0"
             :tasks="tasks"
             :view-mode="viewMode"
+            :current-date="currentDate"
             :filter-types="selectedOrderTypes"
             :filter-statuses="selectedOrderStatuses"
             @task-updated="handleTaskUpdate"
@@ -283,7 +285,8 @@ const techOptions = [
   { key: 'frappe', label: 'Frappe Gantt库' }
 ]
 
-const viewMode = ref('day')
+const viewMode = ref('hour')
+const currentDate = ref('2026-01-28') // 使用模拟数据的日期
 const selectedTaskId = ref(null)
 const showAddTask = ref(false)
 const editingTask = ref(null)
@@ -445,7 +448,7 @@ const handleTaskClick = (task) => {
 }
 
 const handleDateChange = (date) => {
-  console.log('日期变更:', date)
+  currentDate.value = date
 }
 
 const editTask = (task) => {

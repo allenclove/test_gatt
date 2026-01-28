@@ -8,7 +8,7 @@
             <polyline points="15 18 9 12 15 6"></polyline>
           </svg>
         </button>
-        <input type="date" v-model="currentDate" @change="onDateChange">
+        <input type="date" :value="props.currentDate" @change="(e) => emit('date-changed', e.target.value)">
         <button @click="changeDate(1)" class="nav-btn">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="9 18 15 12 9 6"></polyline>
@@ -181,6 +181,10 @@ const props = defineProps({
     type: String,
     default: 'hour'
   },
+  currentDate: {
+    type: String,
+    default: () => new Date().toISOString().split('T')[0]
+  },
   filterTypes: {
     type: Array,
     default: () => ['normal', 'urgent', 'expedited']
@@ -199,7 +203,6 @@ const viewModes = [
   { key: 'day', label: '4小时', slotMinutes: 240 }
 ]
 
-const currentDate = ref(new Date().toISOString().split('T')[0])
 const viewMode = ref('hour')
 const zones = ref([])
 
@@ -262,7 +265,7 @@ const timeSlots = computed(() => {
 const visibleTasks = computed(() => {
   return props.tasks.filter(task => {
     const taskDate = task.start.split('T')[0] || task.start
-    if (taskDate !== currentDate.value) return false
+    if (taskDate !== props.currentDate) return false
     if (!task.zoneId) return false
 
     // 订单类型筛选
@@ -306,7 +309,7 @@ const updateCurrentTimeLine = () => {
   const now = new Date()
   const today = now.toISOString().split('T')[0]
 
-  if (today === currentDate.value) {
+  if (today === props.currentDate) {
     const mode = viewModes.find(m => m.key === viewMode.value) || viewModes[1]
     const currentMinutes = now.getHours() * 60 + now.getMinutes()
     const slotIndex = Math.floor(currentMinutes / mode.slotMinutes)
@@ -330,7 +333,7 @@ const getTaskStyle = (task) => {
     taskStartTime = '00:00'
   }
 
-  if (taskStartDate !== currentDate.value) {
+  if (taskStartDate !== props.currentDate) {
     return { display: 'none' }
   }
 
@@ -421,19 +424,13 @@ const hideTooltip = () => {
 }
 
 const changeDate = (delta) => {
-  const date = new Date(currentDate.value)
+  const date = new Date(props.currentDate)
   date.setDate(date.getDate() + delta)
-  currentDate.value = date.toISOString().split('T')[0]
-  emit('date-changed', currentDate.value)
-}
-
-const onDateChange = () => {
-  emit('date-changed', currentDate.value)
+  emit('date-changed', date.toISOString().split('T')[0])
 }
 
 const goToToday = () => {
-  currentDate.value = new Date().toISOString().split('T')[0]
-  emit('date-changed', currentDate.value)
+  emit('date-changed', new Date().toISOString().split('T')[0])
 }
 
 let timeUpdateInterval = null
@@ -453,7 +450,7 @@ watch(() => props.viewMode, (newVal) => {
   viewMode.value = newVal
 })
 
-watch([viewMode, currentDate], () => {
+watch([viewMode, () => props.currentDate], () => {
   nextTick(() => {
     updateCurrentTimeLine()
   })
