@@ -8,6 +8,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "frappe-gantt": "^1.0.4",
     "vue": "^3.4.0"
   },
   "devDependencies": {

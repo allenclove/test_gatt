@@ -4,7 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Vue 3 production scheduling Gantt chart application (排产管理系统). It displays manufacturing tasks across work zones with time-based scheduling, using a custom-built Gantt chart component rather than external libraries.
+This is a Vue 3 production scheduling Gantt chart application (排产管理系统) designed for technology comparison. It provides **two implementation approaches** that can be switched via UI buttons:
+
+1. **GanttCustom.vue** - Fully custom Vue component with zone-based layout
+2. **GanttFrappe.vue** - Wrapper around the Frappe Gantt library
 
 ## Commands
 
@@ -19,42 +22,57 @@ npm run preview  # Preview production build
 ### Technology Stack
 - Vue 3 with Composition API (script setup)
 - Vite for build tooling
+- Frappe Gantt (optional, CDN-loaded)
 - No TypeScript (plain JavaScript)
 - Scoped CSS in components
 
 ### Project Structure
 ```
 src/
-├── main.js           # App entry point
-├── style.css         # Global styles
-├── App.vue           # Main application layout and state management
+├── main.js               # App entry point
+├── style.css             # Global styles
+├── App.vue               # Main app with tech switcher
 └── components/
-    └── GanttChart.vue # Custom Gantt chart component
+    ├── GanttCustom.vue   # Custom zone-based Gantt
+    └── GanttFrappe.vue   # Frappe Gantt wrapper
 ```
 
 ### Application Layout
-The app uses a fixed-layout design:
-- **Header**: Logo and "New Task" button
+- **Header**: Logo, tech switcher buttons, "New Task" button
 - **Left Sidebar**: Task list with filtering by task type
-- **Main Area**: Statistics cards and Gantt chart
+- **Main Area**: Statistics cards and Gantt chart (switches between two implementations)
 
-### Gantt Chart Component
+### Component Comparison
 
-The GanttChart component is fully custom-built (no external Gantt library). Key architectural concepts:
+#### GanttCustom.vue (Custom Implementation)
 
-**Time System**: Uses a slot-based time system where each "slot" represents a configurable duration (30min/1hr/4hr). The `viewModes` array defines these slots.
+**Architecture Concepts:**
+- **Zone-Based Rows**: Rows = Work zones, tasks positioned within rows
+- **Time System**: Slot-based (30min/1hr/4hr per slot)
+- **Task Positioning**: Absolute positioning via `getTaskStyle()`
+  - Horizontal: start time → slot pixels
+  - Vertical: zone index × rowHeight
+  - Width: duration → slot pixels
+- **Zones Extraction**: Dynamic via `watch(() => props.tasks)` inspecting `task.zoneId`
 
-**Zone-Based Rows**: Unlike traditional Gantt charts where rows = tasks, this chart has:
-- Rows = Work zones (加工区域)
-- Tasks positioned within zone rows based on start time
-- Multiple tasks can occupy the same zone at different times
+**Configuration:**
+```js
+rowHeight = 50      // Zone row height in pixels
+headerHeight = 50   // Time header height
+columnWidth = 60    // Time slot width
+```
 
-**Task Positioning**: Tasks are positioned absolutely using `getTaskStyle()`:
-- Horizontal position = start time converted to slot-based pixels
-- Vertical position = zone index × rowHeight
-- Width = duration converted to slot-based pixels
+**View Modes:** `minute` (30min), `hour` (1hr), `day` (4hr)
 
-**Data Flow**: Zones are dynamically extracted from tasks via `watch(() => props.tasks)` - the component inspects `task.zoneId` across all tasks to build the zone list.
+#### GanttFrappe.vue (Library Implementation)
+
+**Architecture:**
+- Wraps Frappe Gantt library (loaded via CDN)
+- Converts task data format for frappe compatibility
+- Standard Gantt layout: rows = tasks
+- Shows dependency arrows between tasks
+
+**View Modes:** `day` (日), `week` (周), `month` (月)
 
 ### Task Data Structure
 
@@ -64,20 +82,38 @@ The GanttChart component is fully custom-built (no external Gantt library). Key 
   name: String,           // Display name
   orderNo: String,        // Order number (shown on task bar)
   productName: String,    // Product name
-  start: String,          // ISO format: "2026-01-28T08:00"
-  end: String,            // ISO format: "2026-01-28T12:00"
+  start: String,          // ISO: "2026-01-28T08:00"
+  end: String,            // ISO: "2026-01-28T12:00"
   progress: Number,       // 0-100
   customClass: String,    // "order-task" | "maintenance-task" | "quality-task"
-  zoneId: String          // "zone-1", "zone-2", etc.
+  zoneId: String          // "zone-1", "zone-2", etc. (used by GanttCustom)
 }
 ```
 
 ### State Management (App.vue)
 
-All state is managed in App.vue using Vue refs:
+All state managed in App.vue using Vue refs:
 - `tasks`: Array of all tasks
-- `zones`: Array of available work zones (for dropdown)
-- `viewMode`: Current time granularity (passed to GanttChart)
+- `ganttType`: Current implementation (`'custom'` | `'frappe'`)
+- `zones`: Array of work zones
+- `viewMode`: Time granularity
+- `taskForm`: Form state for create/edit modal
+
+### Color Coding (Both Components)
+
+Task types use gradient backgrounds:
+- `order-task`: Blue (#2196F3 → #1976D2)
+- `maintenance-task`: Orange (#FF9800 → #F57C00)
+- `quality-task`: Purple (#9C27B0 → #7B1FA2)
+
+## Important Notes
+
+- **Dual Implementation**: App switches between components via `ganttType` state
+- **Shared Data**: Both components consume the same `tasks` array
+- **Frappe CDN**: GanttFrappe loads library from CDN on mount
+- **Mock Data**: `generateMockTasks()` creates sample production data
+- **Time Format**: ISO 8601 with 'T' separator
+- **Tooltip**: Custom component has hover tooltip; Frappe shows task info on click
 - `taskForm`: Form state for create/edit modal
 
 ### Color Coding

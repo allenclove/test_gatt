@@ -14,6 +14,17 @@
         </div>
       </div>
       <div class="header-right">
+        <!-- 技术选型切换 -->
+        <div class="tech-switcher">
+          <button
+            v-for="option in techOptions"
+            :key="option.key"
+            @click="ganttType = option.key"
+            :class="['tech-btn', { active: ganttType === option.key }]"
+          >
+            {{ option.label }}
+          </button>
+        </div>
         <button class="btn-primary" @click="showAddTask = true">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <line x1="12" y1="5" x2="12" y2="19"></line>
@@ -156,16 +167,27 @@
           </div>
         </div>
 
-        <!-- 甘特图 -->
+        <!-- 甘特图组件切换 -->
         <div class="gantt-wrapper">
-          <GanttChart
-            v-if="tasks.length > 0"
+          <GanttCustom
+            v-if="ganttType === 'custom' && tasks.length > 0"
             :tasks="tasks"
             :view-mode="viewMode"
             @task-updated="handleTaskUpdate"
             @task-click="handleTaskClick"
             @date-changed="handleDateChange"
           />
+          <GanttFrappe
+            v-else-if="ganttType === 'frappe' && tasks.length > 0"
+            :tasks="tasks"
+            :view-mode="viewMode"
+            @task-updated="handleTaskUpdate"
+            @task-click="handleTaskClick"
+            @date-changed="handleDateChange"
+          />
+          <div v-else class="empty-state">
+            <p>暂无任务数据</p>
+          </div>
         </div>
       </main>
     </div>
@@ -229,7 +251,15 @@
 
 <script setup>
 import { ref, computed } from 'vue'
-import GanttChart from './components/GanttChart.vue'
+import GanttCustom from './components/GanttCustom.vue'
+import GanttFrappe from './components/GanttFrappe.vue'
+
+// 技术选型
+const ganttType = ref('custom')
+const techOptions = [
+  { key: 'custom', label: '自定义Vue组件' },
+  { key: 'frappe', label: 'Frappe Gantt库' }
+]
 
 const viewMode = ref('day')
 const selectedTaskId = ref(null)
@@ -499,6 +529,37 @@ const formatDateRange = (start, end) => {
   background: #45a049;
 }
 
+/* 技术切换按钮 */
+.tech-switcher {
+  display: flex;
+  gap: 8px;
+  background: #f3f4f6;
+  padding: 4px;
+  border-radius: 8px;
+}
+
+.tech-btn {
+  padding: 8px 16px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #6b7280;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.tech-btn:hover {
+  color: #374151;
+}
+
+.tech-btn.active {
+  background: white;
+  color: #4CAF50;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
 /* 主内容 */
 .main-content {
   display: flex;
@@ -750,6 +811,15 @@ const formatDateRange = (start, end) => {
   overflow: hidden;
   height: calc(100vh - 280px);
   min-height: 400px;
+}
+
+.empty-state {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #9ca3af;
+  font-size: 14px;
 }
 
 /* 弹窗 */
