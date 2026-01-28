@@ -292,9 +292,9 @@ const taskForm = ref({
 // 生成大量模拟任务数据
 const generateMockTasks = () => {
   const taskTypes = [
-    { type: 'order-task', name: '订单', count: 25 },
-    { type: 'maintenance-task', name: '设备维护', count: 5 },
-    { type: 'quality-task', name: '质检工序', count: 8 }
+    { type: 'order-task', name: '订单', count: 100 },
+    { type: 'maintenance-task', name: '设备维护', count: 20 },
+    { type: 'quality-task', name: '质检工序', count: 30 }
   ]
 
   const tasks = []

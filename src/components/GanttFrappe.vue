@@ -30,9 +30,88 @@
       </div>
     </div>
 
-    <!-- Frappe Gantt SVG容器 -->
-    <div class="gantt-wrapper">
-      <svg id="gantt" ref="ganttSvg"></svg>
+    <!-- 甘特图主体 -->
+    <div class="gantt-body">
+      <!-- 左侧区域列表 -->
+      <div class="zones-panel">
+        <div class="zone-header">加工区域</div>
+        <div
+          v-for="zone in zones"
+          :key="zone.id"
+          class="zone-row"
+          :style="{ height: rowHeight + 'px' }"
+        >
+          <div class="zone-name">{{ zone.name }}</div>
+        </div>
+      </div>
+
+      <!-- 右侧任务条区域 -->
+      <div class="tasks-panel">
+        <!-- 时间刻度 -->
+        <div class="time-header" :style="{ height: headerHeight + 'px' }">
+          <div
+            v-for="(time, index) in timeSlots"
+            :key="index"
+            class="time-slot"
+            :style="{ width: columnWidth + 'px' }"
+          >
+            {{ time.label }}
+          </div>
+        </div>
+
+        <!-- 任务网格 -->
+        <div class="tasks-grid" :style="{ height: (zones.length * rowHeight) + 'px' }">
+          <!-- 背景网格 -->
+          <div class="grid-background">
+            <div
+              v-for="(zone, zoneIndex) in zones"
+              :key="zone.id"
+              class="grid-row"
+              :style="{
+                top: (zoneIndex * rowHeight) + 'px',
+                height: rowHeight + 'px',
+                width: (timeSlots.length * columnWidth) + 'px'
+              }"
+            >
+              <div
+                v-for="(time, timeIndex) in timeSlots"
+                :key="timeIndex"
+                class="grid-cell"
+                :style="{
+                  left: (timeIndex * columnWidth) + 'px',
+                  width: columnWidth + 'px',
+                  height: rowHeight + 'px'
+                }"
+              ></div>
+            </div>
+          </div>
+
+          <!-- 当前时间线 -->
+          <div
+            v-if="currentTimePosition > 0"
+            class="current-time-line"
+            :style="{
+              left: currentTimePosition + 'px',
+              height: (zones.length * rowHeight) + 'px'
+            }"
+          ></div>
+
+          <!-- 任务条 -->
+          <div
+            v-for="task in visibleTasks"
+            :key="task.id"
+            class="task-bar"
+            :class="task.customClass"
+            :style="getTaskStyle(task)"
+            @click="$emit('task-click', task)"
+          >
+            <div class="task-content">
+              <span class="task-order-no">{{ task.orderNo || 'N/A' }}</span>
+            </div>
+            <div class="task-progress" :style="{ width: task.progress + '%' }"></div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- 任务统计 -->
@@ -63,115 +142,145 @@ const props = defineProps({
   },
   viewMode: {
     type: String,
-    default: 'day'
+    default: 'hour'
   }
 })
 
 const emit = defineEmits(['task-click', 'task-updated', 'date-changed'])
 
 const viewModes = [
-  { key: 'day', label: '日视图' },
-  { key: 'week', label: '周视图' },
-  { key: 'month', label: '月视图' }
+  { key: 'minute', label: '30分钟', slotMinutes: 30 },
+  { key: 'hour', label: '1小时', slotMinutes: 60 },
+  { key: 'day', label: '4小时', slotMinutes: 240 }
 ]
 
 const currentDate = ref(new Date().toISOString().split('T')[0])
-const viewMode = ref('day')
-const ganttSvg = ref(null)
+const viewMode = ref('hour')
+const zones = ref([])
 
-let ganttInstance = null
+const rowHeight = 50
+const headerHeight = 50
+const columnWidth = 60
 
-// 转换任务格式为frappe-gantt格式
-const frappeTasks = computed(() => {
-  return props.tasks.map(task => ({
-    id: task.id,
-    name: task.orderNo || task.name,
-    start: task.start.split('T')[0],
-    end: task.end.split('T')[0],
-    progress: task.progress,
-    dependencies: task.dependencies || [],
-    customClass: task.customClass || 'order-task'
-  }))
+// 从父组件获取zones
+watch(() => props.tasks, () => {
+  if (props.tasks.length > 0) {
+    const zoneSet = new Set(props.tasks.map(t => t.zoneId).filter(Boolean))
+    zones.value = Array.from(zoneSet).map((id, index) => ({
+      id,
+      name: `加工区域 ${id.replace('zone-', '').toUpperCase()}`
+    }))
+  }
+}, { immediate: true })
+
+// 计算时间槽
+const timeSlots = computed(() => {
+  const mode = viewModes.find(m => m.key === viewMode.value) || viewModes[1]
+  const slotsPerDay = 1440 / mode.slotMinutes
+  const slots = []
+
+  for (let i = 0; i < slotsPerDay; i++) {
+    const minutes = i * mode.slotMinutes
+    const hours = Math.floor(minutes / 60)
+    const mins = minutes % 60
+
+    let label = ''
+    if (viewMode.value === 'minute') {
+      label = `${hours}:${mins.toString().padStart(2, '0')}`
+    } else if (viewMode.value === 'hour') {
+      label = `${hours}:00`
+    } else {
+      const endHour = hours + 4
+      label = `${hours}:00-${endHour}:00`
+    }
+
+    slots.push({
+      index: i,
+      label,
+      startMinutes: minutes,
+      endMinutes: minutes + mode.slotMinutes
+    })
+  }
+
+  return slots
+})
+
+// 计算可见任务
+const visibleTasks = computed(() => {
+  return props.tasks.filter(task => {
+    const taskDate = task.start.split('T')[0] || task.start
+    return taskDate === currentDate.value && task.zoneId
+  })
 })
 
 const inProgressCount = computed(() => props.tasks.filter(t => t.progress > 0 && t.progress < 100).length)
 const completedCount = computed(() => props.tasks.filter(t => t.progress === 100).length)
 
-// 初始化Gantt
-const initGantt = () => {
-  if (!ganttSvg.value) return
+// 计算当前时间线位置
+const currentTimePosition = ref(0)
 
-  // 清空现有内容
-  ganttSvg.value.innerHTML = ''
+const updateCurrentTimeLine = () => {
+  const now = new Date()
+  const today = now.toISOString().split('T')[0]
 
-  // 动态加载frappe-gantt CSS和JS
-  if (!window.Gantt) {
-    const loadScript = () => {
-      return new Promise((resolve, reject) => {
-        // 加载CSS
-        const cssLink = document.createElement('link')
-        cssLink.rel = 'stylesheet'
-        cssLink.href = 'https://cdn.jsdelivr.net/npm/frappe-gantt@0.6.1/dist/frappe-gantt.css'
-        document.head.appendChild(cssLink)
-
-        // 加载JS
-        const script = document.createElement('script')
-        script.src = 'https://cdn.jsdelivr.net/npm/frappe-gantt@0.6.1/dist/frappe-gantt.min.js'
-        script.onload = resolve
-        script.onerror = reject
-        document.head.appendChild(script)
-      })
-    }
-
-    loadScript().then(() => {
-      createGantt()
-    }).catch(err => {
-      console.error('加载frappe-gantt失败:', err)
-    })
+  if (today === currentDate.value) {
+    const mode = viewModes.find(m => m.key === viewMode.value) || viewModes[1]
+    const currentMinutes = now.getHours() * 60 + now.getMinutes()
+    const slotIndex = Math.floor(currentMinutes / mode.slotMinutes)
+    const positionInSlot = (currentMinutes % mode.slotMinutes) / mode.slotMinutes
+    currentTimePosition.value = (slotIndex + positionInSlot) * columnWidth
   } else {
-    createGantt()
+    currentTimePosition.value = 0
   }
 }
 
-const createGantt = () => {
-  if (!window.Gantt || !ganttSvg.value) return
+// 获取任务样式
+const getTaskStyle = (task) => {
+  const mode = viewModes.find(m => m.key === viewMode.value) || viewModes[1]
 
-  ganttInstance = new window.Gantt(ganttSvg.value, frappeTasks.value, {
-    view_mode: viewMode.value,
-    language: 'zh',
-    on_click: (task) => {
-      const originalTask = props.tasks.find(t => t.id === task.id)
-      if (originalTask) {
-        emit('task-click', originalTask)
-      }
-    },
-    on_date_change: (task, start, end) => {
-      emit('task-updated', {
-        id: task.id,
-        start,
-        end
-      })
-    },
-    on_progress_change: (task, progress) => {
-      emit('task-updated', {
-        id: task.id,
-        progress
-      })
-    }
-  })
-}
+  let taskStartDate, taskStartTime
+  if (task.start.includes('T')) {
+    [taskStartDate, taskStartTime] = task.start.split('T')
+  } else {
+    taskStartDate = task.start
+    taskStartTime = '00:00'
+  }
 
-const refreshGantt = () => {
-  if (ganttInstance) {
-    ganttInstance.refresh(frappeTasks.value)
+  if (taskStartDate !== currentDate.value) {
+    return { display: 'none' }
+  }
+
+  const [startHour, startMin] = taskStartTime.split(':').map(Number)
+  const startMinutes = startHour * 60 + startMin
+
+  let endMinutes
+  if (task.end && task.end.includes('T')) {
+    const [, endTime] = task.end.split('T')
+    const [endHour, endMin] = endTime.split(':').map(Number)
+    endMinutes = endHour * 60 + endMin
+  } else if (task.duration) {
+    endMinutes = startMinutes + task.duration
+  } else {
+    endMinutes = startMinutes + 60
+  }
+
+  const duration = endMinutes - startMinutes
+  const left = (startMinutes / mode.slotMinutes) * columnWidth
+  const width = (duration / mode.slotMinutes) * columnWidth
+
+  const zoneIndex = zones.value.findIndex(z => z.id === task.zoneId)
+  const top = zoneIndex >= 0 ? zoneIndex * rowHeight + 6 : 0
+
+  return {
+    left: left + 'px',
+    top: top + 'px',
+    width: Math.max(width, 40) + 'px',
+    height: (rowHeight - 12) + 'px'
   }
 }
 
 const changeViewMode = (mode) => {
   viewMode.value = mode
-  if (ganttInstance) {
-    ganttInstance.change_view_mode(mode)
-  }
 }
 
 const changeDate = (delta) => {
@@ -190,24 +299,27 @@ const goToToday = () => {
   emit('date-changed', currentDate.value)
 }
 
+let timeUpdateInterval = null
+
 onMounted(() => {
-  nextTick(() => {
-    initGantt()
-  })
+  updateCurrentTimeLine()
+  timeUpdateInterval = setInterval(updateCurrentTimeLine, 60000)
 })
 
 onUnmounted(() => {
-  ganttInstance = null
+  if (timeUpdateInterval) {
+    clearInterval(timeUpdateInterval)
+  }
 })
 
-watch(() => props.tasks, () => {
-  refreshGantt()
-}, { deep: true })
-
 watch(() => props.viewMode, (newVal) => {
-  if (newVal) {
-    changeViewMode(newVal)
-  }
+  viewMode.value = newVal
+})
+
+watch([viewMode, currentDate], () => {
+  nextTick(() => {
+    updateCurrentTimeLine()
+  })
 })
 </script>
 
@@ -225,7 +337,7 @@ watch(() => props.viewMode, (newVal) => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
+  padding: 10px 16px;
   border-bottom: 1px solid #e5e7eb;
   background: #f9fafb;
   gap: 16px;
@@ -234,11 +346,11 @@ watch(() => props.viewMode, (newVal) => {
 .date-picker {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .nav-btn {
-  padding: 6px 10px;
+  padding: 5px 8px;
   border: 1px solid #d1d5db;
   background: white;
   border-radius: 4px;
@@ -253,23 +365,23 @@ watch(() => props.viewMode, (newVal) => {
 }
 
 .date-picker input[type="date"] {
-  padding: 6px 10px;
+  padding: 5px 8px;
   border: 1px solid #d1d5db;
   border-radius: 4px;
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .view-controls {
   display: flex;
-  gap: 8px;
+  gap: 6px;
 }
 
 .view-btn {
-  padding: 8px 12px;
+  padding: 5px 10px;
   border: 1px solid #d1d5db;
   background: white;
   border-radius: 4px;
-  font-size: 13px;
+  font-size: 12px;
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -285,11 +397,11 @@ watch(() => props.viewMode, (newVal) => {
 }
 
 .today-btn button {
-  padding: 6px 12px;
+  padding: 5px 10px;
   border: 1px solid #d1d5db;
   background: white;
   border-radius: 4px;
-  font-size: 13px;
+  font-size: 12px;
   cursor: pointer;
 }
 
@@ -297,14 +409,168 @@ watch(() => props.viewMode, (newVal) => {
   background: #f3f4f6;
 }
 
-.gantt-wrapper {
+.gantt-body {
+  display: flex;
   flex: 1;
-  overflow: auto;
-  padding: 20px;
+  overflow: hidden;
 }
 
-#ggantt {
+.zones-panel {
+  width: 120px;
+  flex-shrink: 0;
+  border-right: 2px solid #e5e7eb;
+  background: #f9fafb;
+  overflow-y: auto;
+}
+
+.zone-header {
+  height: 50px;
+  padding: 10px 8px;
+  font-weight: 600;
+  font-size: 12px;
+  color: #374151;
+  border-bottom: 1px solid #e5e7eb;
+  background: #f3f4f6;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+.zone-row {
+  border-bottom: 1px solid #e5e7eb;
+  display: flex;
+  align-items: center;
+}
+
+.zone-name {
+  padding: 0 8px;
+  font-size: 11px;
+  color: #4b5563;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tasks-panel {
+  flex: 1;
+  overflow: auto;
+}
+
+.time-header {
+  display: flex;
+  border-bottom: 1px solid #e5e7eb;
+  background: #f3f4f6;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.time-slot {
+  flex-shrink: 0;
+  padding: 10px 4px;
+  text-align: center;
+  font-size: 11px;
+  color: #6b7280;
+  border-right: 1px solid #e5e7eb;
+  font-weight: 500;
+}
+
+.tasks-grid {
+  position: relative;
+}
+
+.grid-background {
+  position: absolute;
+  top: 0;
+  left: 0;
   width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.grid-row {
+  position: absolute;
+  left: 0;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.grid-cell {
+  position: absolute;
+  top: 0;
+  border-right: 1px solid #f3f4f6;
+}
+
+.current-time-line {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  background: #ef4444;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.current-time-line::before {
+  content: '';
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  width: 10px;
+  height: 10px;
+  background: #ef4444;
+  border-radius: 50%;
+}
+
+.task-bar {
+  position: absolute;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+  overflow: hidden;
+  background: #2196F3;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+
+.task-bar:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+  filter: brightness(1.1);
+  z-index: 100;
+}
+
+.task-content {
+  padding: 4px 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}
+
+.task-order-no {
+  font-size: 10px;
+  font-weight: 600;
+  color: white;
+  white-space: nowrap;
+}
+
+.task-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: rgba(255,255,255,0.6);
+  border-radius: 0 0 4px 4px;
+}
+
+.task-bar.order-task {
+  background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%);
+}
+
+.task-bar.maintenance-task {
+  background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%);
+}
+
+.task-bar.quality-task {
+  background: linear-gradient(135deg, #9C27B0 0%, #7B1FA2 100%);
 }
 
 .task-stats {
@@ -331,80 +597,25 @@ watch(() => props.viewMode, (newVal) => {
   color: #1f2937;
 }
 
-/* Frappe Gantt 样式覆盖 */
-:deep(.gantt) {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+.tasks-panel::-webkit-scrollbar,
+.zones-panel::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
 }
 
-:deep(.gantt .bar) {
-  fill: #4CAF50;
-  stroke: #45a049;
-  stroke-width: 1px;
+.tasks-panel::-webkit-scrollbar-track,
+.zones-panel::-webkit-scrollbar-track {
+  background: #f3f4f6;
 }
 
-:deep(.gantt .bar:hover) {
-  fill: #45a049;
+.tasks-panel::-webkit-scrollbar-thumb,
+.zones-panel::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 3px;
 }
 
-:deep(.gantt .bar-progress) {
-  fill: #81C784;
-}
-
-:deep(.gantt .bar-wrapper) {
-  cursor: pointer;
-}
-
-:deep(.gantt .bar-label) {
-  fill: #333;
-  font-size: 12px;
-}
-
-/* 自定义任务类型样式 */
-:deep(.gantt .bar.order-task) {
-  fill: #2196F3;
-  stroke: #1976D2;
-}
-
-:deep(.gantt .bar.order-task:hover) {
-  fill: #1976D2;
-}
-
-:deep(.gantt .bar.order-task .bar-progress) {
-  fill: #64B5F6;
-}
-
-:deep(.gantt .bar.maintenance-task) {
-  fill: #FF9800;
-  stroke: #F57C00;
-}
-
-:deep(.gantt .bar.maintenance-task:hover) {
-  fill: #F57C00;
-}
-
-:deep(.gantt .bar.maintenance-task .bar-progress) {
-  fill: #FFB74D;
-}
-
-:deep(.gantt .bar.quality-task) {
-  fill: #9C27B0;
-  stroke: #7B1FA2;
-}
-
-:deep(.gantt .bar.quality-task:hover) {
-  fill: #7B1FA2;
-}
-
-:deep(.gantt .bar.quality-task .bar-progress) {
-  fill: #BA68C8;
-}
-
-:deep(.gantt .grid-line) {
-  stroke: #e0e0e0;
-}
-
-:deep(.gantt .arrow) {
-  stroke: #999;
-  stroke-width: 1px;
+.tasks-panel::-webkit-scrollbar-thumb:hover,
+.zones-panel::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
 }
 </style>
