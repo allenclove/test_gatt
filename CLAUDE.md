@@ -4,10 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Vue 3 production scheduling Gantt chart application (排产管理系统) designed for technology comparison. It provides **two implementation approaches** that can be switched via UI buttons:
+This is a Vue 3 production scheduling Gantt chart application (排产管理系统) designed for technology comparison. It provides **four implementation approaches** that can be switched via UI buttons:
 
 1. **GanttCustom.vue** - Fully custom Vue component with zone-based layout
 2. **GanttFrappe.vue** - Wrapper around the Frappe Gantt library
+3. **GanttEchartsNative.vue** - Native ECharts implementation
+4. **GanttVueEcharts.vue** - Vue-ECharts wrapper implementation
 
 ## Commands
 
@@ -23,24 +25,28 @@ npm run preview  # Preview production build
 - Vue 3 with Composition API (script setup)
 - Vite for build tooling
 - Frappe Gantt (optional, CDN-loaded)
+- ECharts 6.0
+- vue-echarts 8.0
 - No TypeScript (plain JavaScript)
 - Scoped CSS in components
 
 ### Project Structure
 ```
 src/
-├── main.js               # App entry point
-├── style.css             # Global styles
-├── App.vue               # Main app with tech switcher
+├── main.js                     # App entry point
+├── style.css                   # Global styles
+├── App.vue                     # Main app with tech switcher
 └── components/
-    ├── GanttCustom.vue   # Custom zone-based Gantt
-    └── GanttFrappe.vue   # Frappe Gantt wrapper
+    ├── GanttCustom.vue         # Custom zone-based Gantt
+    ├── GanttFrappe.vue         # Frappe Gantt wrapper
+    ├── GanttEchartsNative.vue  # Native ECharts Gantt
+    └── GanttVueEcharts.vue     # Vue-ECharts wrapper Gantt
 ```
 
 ### Application Layout
-- **Header**: Logo, tech switcher buttons, "New Task" button
+- **Header**: Logo, tech switcher buttons (4 options), "New Task" button
 - **Left Sidebar**: Task list with filtering by task type
-- **Main Area**: Statistics cards and Gantt chart (switches between two implementations)
+- **Main Area**: Statistics cards and Gantt chart (switches between four implementations)
 
 ### Component Comparison
 
@@ -74,6 +80,41 @@ columnWidth = 60    // Time slot width
 
 **View Modes:** `day` (日), `week` (周), `month` (月)
 
+#### GanttEchartsNative.vue (Native ECharts)
+
+**Architecture:**
+- Uses ECharts 6.0 with ScatterChart
+- Cartesian coordinate system with value-type Y-axis
+- Each zone creates a separate series to avoid overlap
+- Y-axis labels formatted to show zone names
+
+**Configuration:**
+```js
+rowHeight = 20       // Task bar height in pixels
+zoneBaseY = 100      // Each zone occupies 100 pixels vertically
+columnWidth = 60     // Time slot width
+```
+
+**Key Implementation Details:**
+- Y-axis type: `value` (not category)
+- Y-position calculation: `zoneIdx * 100 + 20 + row * rowHeight`
+- Symbol: `rect` for bar-like appearance
+- SymbolSize: dynamic array `[width, height]` based on duration
+
+**View Modes:** `minute` (30min), `hour` (1hr), `day` (4hr)
+
+#### GanttVueEcharts.vue (Vue-ECharts Wrapper)
+
+**Architecture:**
+- Uses vue-echarts component wrapper
+- Computed chartOption for reactive updates
+- Same scatter chart approach as native version
+- Autoresize enabled
+
+**Configuration:** Same as GanttEchartsNative.vue
+
+**View Modes:** `minute` (30min), `hour` (1hr), `day` (4hr)
+
 ### Task Data Structure
 
 ```js
@@ -86,7 +127,7 @@ columnWidth = 60    // Time slot width
   end: String,            // ISO: "2026-01-28T12:00"
   progress: Number,       // 0-100
   customClass: String,    // "order-task" | "maintenance-task" | "quality-task"
-  zoneId: String          // "zone-1", "zone-2", etc. (used by GanttCustom)
+  zoneId: String          // "zone-1", "zone-2", etc. (used by all components)
 }
 ```
 
@@ -94,49 +135,83 @@ columnWidth = 60    // Time slot width
 
 All state managed in App.vue using Vue refs:
 - `tasks`: Array of all tasks
-- `ganttType`: Current implementation (`'custom'` | `'frappe'`)
+- `ganttType`: Current implementation (`'custom'` | `'frappe'` | `'echarts-native'` | `'vue-echarts'`)
 - `zones`: Array of work zones
 - `viewMode`: Time granularity
 - `taskForm`: Form state for create/edit modal
 
-### Color Coding (Both Components)
+### Color Coding (All Components)
 
-Task types use gradient backgrounds:
-- `order-task`: Blue (#2196F3 → #1976D2)
-- `maintenance-task`: Orange (#FF9800 → #F57C00)
-- `quality-task`: Purple (#9C27B0 → #7B1FA2)
+Task types use different colors:
+- `order-task`: Blue (#2196F3)
+- `maintenance-task`: Orange (#FF9800)
+- `quality-task`: Purple (#9C27B0)
+
+### Tooltip Behavior
+
+All four components support:
+- Hover tooltip with task details
+- Click to pin tooltip
+- Action buttons (Edit, Delete, Detail) in pinned tooltip
+- Global click handler to close pinned tooltip
 
 ## Important Notes
 
-- **Dual Implementation**: App switches between components via `ganttType` state
-- **Shared Data**: Both components consume the same `tasks` array
+- **Four Implementations**: App switches between components via `ganttType` state
+- **Shared Data**: All components consume the same `tasks` array
+- **ECharts Y-Axis**: Uses `value` type, not `category`, with custom formatter for zone labels
 - **Frappe CDN**: GanttFrappe loads library from CDN on mount
 - **Mock Data**: `generateMockTasks()` creates sample production data
 - **Time Format**: ISO 8601 with 'T' separator
-- **Tooltip**: Custom component has hover tooltip; Frappe shows task info on click
-- `taskForm`: Form state for create/edit modal
+- **Order Numbers**: Displayed on task bars via label configuration (ECharts) or direct content (Custom)
+- **Tooltip Action Buttons**: All components support edit, delete, and detail actions
 
-### Color Coding
+## ECharts-Specific Notes
 
-Task types use gradient backgrounds defined in GanttChart.vue styles:
-- `order-task`: Blue (#2196F3 → #1976D2)
-- `maintenance-task`: Orange (#FF9800 → #F57C00)
-- `quality-task`: Purple (#9C27B0 → #7B1FA2)
+### Scatter Chart for Gantt
 
-### Key Configuration Values (GanttChart.vue)
+The ECharts implementations use ScatterChart with rectangular symbols to simulate Gantt bars:
 
 ```js
-rowHeight = 50      // Height of each zone row in pixels
-headerHeight = 50   // Height of time header
-columnWidth = 60    // Width of each time slot in pixels
+{
+  type: 'scatter',
+  symbol: 'rect',
+  symbolSize: (val, params) => params.data.symbolSize,  // [width, height]
+  label: {
+    show: true,
+    position: 'inside',
+    formatter: (params) => params.data.orderNo || ''
+  }
+}
 ```
 
-Adjust these to change the visual density of the chart.
+### Y-Axis Configuration
 
-## Important Notes
+```js
+yAxis: {
+  type: 'value',
+  min: 0,
+  max: zones.length * 100,
+  axisLabel: {
+    formatter: (value) => {
+      const zoneIdx = Math.floor(value / 100)
+      return zones[zoneIdx]?.name || ''
+    }
+  },
+  interval: 100
+}
+```
 
-- **No Dependencies**: The project intentionally avoids external Gantt libraries for customizability
-- **Mock Data Generation**: `generateMockTasks()` creates sample production data for testing
-- **Time Format**: All times use ISO 8601 format with 'T' separator between date and time
-- **Tooltip**: Task bars show only order number; hover for full details in tooltip
-- **Current Time Line**: Red vertical line updates every 60 seconds when viewing today's date
+### Data Point Structure
+
+```js
+{
+  name: task.name,
+  value: [startMinutes, y],  // [x, y] coordinates
+  task: task,                 // Full task object for tooltip
+  itemStyle: { color: taskColor },
+  orderNo: task.orderNo,
+  duration: durationMinutes,
+  symbolSize: [width, height]
+}
+```

@@ -1,35 +1,38 @@
 # 排产甘特图系统
 
-基于 Vue 3 的生产排产甘特图可视化系统，提供两种实现方案用于技术选型对比。
+基于 Vue 3 的生产排产甘特图可视化系统，提供**四种实现方案**用于技术选型对比。
 
 ## 功能特点
 
-- **双实现方案**：自定义Vue组件 + Frappe Gantt库，支持一键切换对比
+- **四种实现方案**：自定义Vue组件、Frappe Gantt库、原生ECharts、Vue-ECharts封装，支持一键切换对比
 - **多区域展示**：支持多个加工区域并行排产
 - **时间维度切换**：30分钟/1小时/4小时三种时间刻度
 - **任务管理**：创建、编辑、删除任务
 - **可视化交互**：任务条悬停显示详情，点击查看
-- **实时时间线**：当前时间红线标识
+- **实时时间线**：当前时间红线标识（自定义版本）
 - **进度追踪**：任务进度可视化展示
 - **类型分类**：订单任务、设备维护、质检工序三种类型
+- **功能按钮**：Tooltip中包含编辑、删除、详情操作按钮
 
 ## 技术方案对比
 
-| 特性 | 自定义Vue组件 | Frappe Gantt库 |
-|------|--------------|----------------|
-| **实现方式** | 纯Vue + Canvas/DOM | SVG + 第三方库 |
-| **时间粒度** | 30分钟/1小时/4小时 | 日/周/月 |
-| **区域布局** | 横向区域行，任务定位 | 传统任务行布局 |
-| **依赖关系** | 不显示（可扩展） | 显示依赖箭头 |
-| **自定义性** | 完全可控 | 受限于库API |
-| **文件大小** | 自包含，较小 | 需加载外部库 |
-| **适用场景** | 复杂业务定制 | 快速原型开发 |
+| 特性 | 自定义Vue组件 | Frappe Gantt库 | 原生 ECharts | Vue-ECharts 封装 |
+|------|--------------|----------------|-------------|-----------------|
+| **实现方式** | 纯Vue + DOM | SVG + 第三方库 | Canvas + ECharts | Vue组件封装 |
+| **时间粒度** | 30分钟/1小时/4小时 | 日/周/月 | 30分钟/1小时/4小时 | 30分钟/1小时/4小时 |
+| **区域布局** | 横向区域行，任务定位 | 传统任务行布局 | 散点图模拟甘特图 | 散点图模拟甘特图 |
+| **依赖关系** | 不显示（可扩展） | 显示依赖箭头 | 不显示 | 不显示 |
+| **自定义性** | 完全可控 | 受限于库API | 高度可定制 | 高度可定制 |
+| **文件大小** | 自包含，较小 | 需加载外部库 | 较大 | 较大 |
+| **适用场景** | 复杂业务定制 | 快速原型开发 | 数据可视化展示 | Vue项目集成 |
 
 ## 技术栈
 
 - Vue 3 (Composition API)
 - Vite
 - Frappe Gantt (可选方案)
+- ECharts 6.0
+- vue-echarts 8.0
 - 纯 JavaScript (无 TypeScript)
 
 ## 快速开始
@@ -62,14 +65,16 @@ npm run build
 test_gatt/
 ├── src/
 │   ├── components/
-│   │   ├── GanttCustom.vue    # 自定义甘特图组件
-│   │   └── GanttFrappe.vue    # Frappe Gantt库封装
-│   ├── App.vue                # 主应用页面（含切换功能）
-│   ├── main.js                # 应用入口
-│   └── style.css              # 全局样式
+│   │   ├── GanttCustom.vue         # 自定义甘特图组件
+│   │   ├── GanttFrappe.vue         # Frappe Gantt库封装
+│   │   ├── GanttEchartsNative.vue  # 原生ECharts甘特图
+│   │   └── GanttVueEcharts.vue     # Vue-ECharts封装甘特图
+│   ├── App.vue                     # 主应用页面（含切换功能）
+│   ├── main.js                     # 应用入口
+│   └── style.css                   # 全局样式
 ├── docs/
-│   └── GANTT_INTEGRATION.md   # 组件接入文档
-├── CLAUDE.md                  # Claude Code 项目说明
+│   └── GANTT_INTEGRATION.md        # 组件接入文档
+├── CLAUDE.md                       # Claude Code 项目说明
 └── package.json
 ```
 
@@ -77,48 +82,73 @@ test_gatt/
 
 ### 切换技术方案
 
-页面顶部右侧有切换按钮，可以随时在两种实现方案之间切换：
+页面顶部右侧有切换按钮，可以随时在四种实现方案之间切换：
 
 ```
-┌─────────────────────────────────────────┐
-│  [自定义Vue组件] [Frappe Gantt库] [新增任务] │
-└─────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│  [自定义Vue组件] [Frappe Gantt库] [原生 ECharts] [Vue-ECharts 封装] │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 点击按钮即可切换，数据自动同步。
 
-## 组件使用
+## 实现方案详解
 
-### 基本用法
+### 1. 自定义Vue组件 (GanttCustom.vue)
 
-```vue
-<template>
-  <GanttChart
-    :tasks="tasks"
-    :view-mode="viewMode"
-    @task-click="handleTaskClick"
-  />
-</template>
+**技术特点**：
+- 纯Vue实现，基于DOM渲染
+- 绝对定位布局
+- 自定义Tooltip交互
 
-<script setup>
-import GanttChart from '@/components/GanttChart.vue'
+**优势**：
+- 完全可控，易于定制
+- 文件体积小
+- 适合复杂业务逻辑
 
-const tasks = ref([
-  {
-    id: '1',
-    name: '任务名称',
-    orderNo: 'SO2026001',
-    start: '2026-01-28T08:00',
-    end: '2026-01-28T12:00',
-    progress: 50,
-    zoneId: 'zone-1',
-    customClass: 'order-task'
-  }
-])
-</script>
-```
+**适用场景**：生产环境，需要深度定制
 
-详细接入文档请查看 [docs/GANTT_INTEGRATION.md](docs/GANTT_INTEGRATION.md)
+### 2. Frappe Gantt库 (GanttFrappe.vue)
+
+**技术特点**：
+- 基于Frape Gantt库
+- SVG渲染
+- 显示任务依赖关系
+
+**优势**：
+- 开箱即用
+- 显示依赖箭头
+- 适合项目管理
+
+**适用场景**：快速原型，项目进度展示
+
+### 3. 原生ECharts (GanttEchartsNative.vue)
+
+**技术特点**：
+- 使用ECharts 6.0
+- ScatterChart模拟甘特图
+- 数值型Y轴，自定义刻度
+
+**优势**：
+- 强大的图表能力
+- 丰富的交互功能
+- 可扩展性强
+
+**适用场景**：数据可视化，需要丰富图表功能
+
+### 4. Vue-ECharts封装 (GanttVueEcharts.vue)
+
+**技术特点**：
+- vue-echarts组件封装
+- 响应式配置
+- Vue风格的事件处理
+
+**优势**：
+- Vue友好
+- 自动resize
+- 声明式配置
+
+**适用场景**：Vue项目，需要响应式图表
 
 ## 数据格式
 
@@ -146,14 +176,20 @@ interface Task {
 | hour | 1小时视图 | 60分钟 |
 | day | 4小时视图 | 240分钟 |
 
-### 样式参数
-
-在 `GanttChart.vue` 中可调整：
+### ECharts配置参数
 
 ```js
-const rowHeight = 50      // 每行高度（像素）
-const headerHeight = 50   // 时间表头高度（像素）
-const columnWidth = 60    // 每个时间槽宽度（像素）
+const rowHeight = 20       // 任务条高度（像素）
+const zoneBaseY = 100      // 每个区域占用空间（像素）
+const columnWidth = 60     // 每个时间槽宽度（像素）
+```
+
+### 自定义Vue组件参数
+
+```js
+const rowHeight = 50       // 每行高度（像素）
+const headerHeight = 50    // 时间表头高度（像素）
+const columnWidth = 60     // 每个时间槽宽度（像素）
 ```
 
 ## 部署说明

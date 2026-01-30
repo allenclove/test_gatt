@@ -211,6 +211,30 @@
             @date-changed="handleDateChange"
             @task-action="handleTaskAction"
           />
+          <GanttEchartsNative
+            v-else-if="ganttType === 'echarts-native' && tasks.length > 0"
+            :tasks="tasks"
+            :view-mode="viewMode"
+            :current-date="currentDate"
+            :filter-types="selectedOrderTypes"
+            :filter-statuses="selectedOrderStatuses"
+            @task-updated="handleTaskUpdate"
+            @task-click="handleTaskClick"
+            @date-changed="handleDateChange"
+            @task-action="handleTaskAction"
+          />
+          <GanttVueEcharts
+            v-else-if="ganttType === 'vue-echarts' && tasks.length > 0"
+            :tasks="tasks"
+            :view-mode="viewMode"
+            :current-date="currentDate"
+            :filter-types="selectedOrderTypes"
+            :filter-statuses="selectedOrderStatuses"
+            @task-updated="handleTaskUpdate"
+            @task-click="handleTaskClick"
+            @date-changed="handleDateChange"
+            @task-action="handleTaskAction"
+          />
           <div v-else class="empty-state">
             <p>暂无任务数据</p>
           </div>
@@ -279,12 +303,16 @@
 import { ref, computed } from 'vue'
 import GanttCustom from './components/GanttCustom.vue'
 import GanttFrappe from './components/GanttFrappe.vue'
+import GanttEchartsNative from './components/GanttEchartsNative.vue'
+import GanttVueEcharts from './components/GanttVueEcharts.vue'
 
 // 技术选型
 const ganttType = ref('custom')
 const techOptions = [
   { key: 'custom', label: '自定义Vue组件' },
-  { key: 'frappe', label: 'Frappe Gantt库' }
+  { key: 'frappe', label: 'Frappe Gantt库' },
+  { key: 'echarts-native', label: '原生 ECharts' },
+  { key: 'vue-echarts', label: 'Vue-ECharts 封装' }
 ]
 
 const viewMode = ref('hour')
