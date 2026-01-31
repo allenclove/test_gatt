@@ -40,8 +40,18 @@
     </div>
 
     <!-- ECharts 甘特图主体 -->
-    <div class="gantt-body">
-      <div ref="chartRef" class="echarts-chart" :style="{ height: Math.max(zones.length * 100 + 50, 300) + 'px' }"></div>
+    <div class="gantt-body" ref="ganttBody">
+      <!-- 时间标尺 -->
+      <div class="time-ruler" :style="{ width: contentWidth + 'px' }">
+        <div class="time-ruler-header">
+          <div v-for="(label, index) in timeLabels" :key="index"
+               class="time-label"
+               :style="{ left: label.position + 'px' }">
+            {{ label.text }}
+          </div>
+        </div>
+      </div>
+      <div ref="chartRef" class="echarts-chart" :style="{ height: Math.max(zones.length * rowHeight + 20, 300) + 'px', width: contentWidth + 'px' }"></div>
     </div>
 
     <!-- Tooltip -->
@@ -124,10 +134,10 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import * as echarts from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
-import { ScatterChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent } from 'echarts/components'
+import { CustomChart, ScatterChart, EffectScatterChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent, DataZoomComponent } from 'echarts/components'
 
-echarts.use([CanvasRenderer, ScatterChart, GridComponent, TooltipComponent])
+echarts.use([CanvasRenderer, CustomChart, ScatterChart, EffectScatterChart, GridComponent, TooltipComponent, DataZoomComponent])
 
 const props = defineProps({
   tasks: {
@@ -164,10 +174,17 @@ const internalViewMode = ref(props.viewMode || 'hour')
 const zones = ref([])
 const chartRef = ref(null)
 let chartInstance = null
+const chartWidth = ref(800)  // 图表宽度，用于计算时间标签位置
 
 const rowHeight = 50
 const headerHeight = 50
-const columnWidth = 60
+const baseColumnWidth = 60  // 30分钟模式的列宽
+// 根据视图模式动态计算列宽：30分钟=60px, 1小时=120px, 4小时=480px
+const columnWidth = computed(() => {
+  const mode = viewModes.find(m => m.key === internalViewMode.value) || viewModes[1]
+  return baseColumnWidth * (mode.slotMinutes / 30)  // slotMinutes: 30/60/240
+})
+const taskBarHeight = 38  // 任务条高度
 
 // Tooltip状态
 const tooltip = ref({
@@ -180,6 +197,13 @@ const tooltipHovered = ref(false)
 const tooltipPinned = ref(false)
 const taskBarHovered = ref(false)
 let hideTooltipTimer = null
+
+// 任务类型颜色映射
+const taskTypeColors = {
+  'order-task': { start: '#2196F3', end: '#1976D2' },
+  'maintenance-task': { start: '#FF9800', end: '#F57C00' },
+  'quality-task': { start: '#9C27B0', end: '#7B1FA2' }
+}
 
 // 全局点击处理
 const handleGlobalClick = (event) => {
@@ -200,9 +224,6 @@ watch(() => props.tasks, () => {
       name: `加工区域 ${id.replace('zone-', '').toUpperCase()}`
     }))
   }
-  nextTick(() => {
-    updateChart()
-  })
 }, { immediate: true })
 
 // 计算可见任务
@@ -228,186 +249,445 @@ const visibleTasks = computed(() => {
   })
 })
 
-// 任务类型颜色映射
-const taskTypeColors = {
-  'order-task': '#2196F3',
-  'maintenance-task': '#FF9800',
-  'quality-task': '#9C27B0'
-}
+// Custom系列渲染函数 - 绘制精美的甘特图条
+const renderGanttBar = (params, api) => {
+  const categoryIndex = api.value(0)  // 区域索引
+  const startSlot = api.value(1)      // 开始槽位
+  const durationSlots = api.value(2)  // 持续槽位数
 
-// 初始化图表
-const initChart = () => {
-  if (!chartRef.value) return
+  // 通过dataIndex从taskDataMap获取任务数据
+  const task = taskDataMap[params.dataIndex]
+  if (!task) return
 
-  try {
-    chartInstance = echarts.init(chartRef.value, null)
-    updateChart()
-  } catch (error) {
-    console.error('Failed to initialize ECharts:', error)
+  const colors = taskTypeColors[task.customClass] || taskTypeColors['order-task']
+  const progress = task.progress || 0
+
+  // 计算布局 - Y坐标使用类别索引（ECharts会自动处理category类型的Y轴）
+  const layoutY = categoryIndex
+  const y = categoryIndex * rowHeight + (rowHeight - taskBarHeight) / 2
+  const height = taskBarHeight
+
+  // 转换为像素坐标（使用槽位坐标，Y值用类别索引）
+  const startX = api.coord([startSlot, layoutY])[0]
+  const endX = api.coord([startSlot + durationSlots, layoutY])[0]
+  const width = Math.max(endX - startX, 20)  // 最小宽度20px
+
+  const x = startX
+
+  // 定义任务条图形
+  const barPath = {
+    type: 'rect',
+    shape: {
+      x: x,
+      y: y,
+      width: width,
+      height: height,
+      r: 6  // 圆角半径
+    },
+    style: {
+      fill: {
+        type: 'linear',
+        x: 0, y: 0, x2: 1, y2: 0,
+        colorStops: [
+          { offset: 0, color: colors.start },
+          { offset: 1, color: colors.end }
+        ]
+      },
+      shadowBlur: 2,
+      shadowColor: 'rgba(0,0,0,0.15)',
+      shadowOffsetY: 1
+    },
+    styleEmphasis: {
+      shadowBlur: 8,
+      shadowColor: 'rgba(0,0,0,0.3)',
+      shadowOffsetY: 2
+    }
+  }
+
+  // 进度条（底部细条）
+  const progressWidth = width * (progress / 100)
+  const progressPath = {
+    type: 'rect',
+    shape: {
+      x: x,
+      y: y + height - 4,
+      width: progressWidth,
+      height: 3,
+      r: 0
+    },
+    style: {
+      fill: 'rgba(255,255,255,0.7)'
+    },
+    silent: true
+  }
+
+  // 订单号文字
+  const textPath = {
+    type: 'text',
+    style: {
+      text: task.orderNo || 'N/A',
+      x: x + width / 2,
+      y: y + height / 2,
+      textAlign: 'center',
+      textVerticalAlign: 'middle',
+      fontSize: 11,
+      fontWeight: '600',
+      fill: '#fff',
+      textShadowColor: 'rgba(0,0,0,0.3)',
+      textShadowBlur: 2
+    },
+    silent: true
+  }
+
+  // 订单类型标识
+  let groupChildren = [barPath, progressPath, textPath]
+
+  if (task.orderType && task.orderType !== 'normal') {
+    const orderTypeColors = {
+      'urgent': '#EF4444',
+      'expedited': '#DC2626'
+    }
+    const badgeText = task.orderType === 'urgent' ? '急' : '特'
+    const badgePath = {
+      type: 'rect',
+      shape: {
+        x: x + width - 20,
+        y: y + 4,
+        width: 16,
+        height: 14,
+        r: 3
+      },
+      style: {
+        fill: orderTypeColors[task.orderType] || '#EF4444'
+      },
+      silent: true
+    }
+    const badgeTextPath = {
+      type: 'text',
+      style: {
+        text: badgeText,
+        x: x + width - 12,
+        y: y + 11,
+        textAlign: 'center',
+        textVerticalAlign: 'middle',
+        fontSize: 9,
+        fontWeight: 'bold',
+        fill: '#fff'
+      },
+      silent: true
+    }
+    groupChildren.push(badgePath, badgeTextPath)
+  }
+
+  // 状态指示点
+  if (task.orderStatus || task.progress > 0) {
+    const statusColors = {
+      'pending': '#9CA3AF',
+      'in-production': '#3B82F6',
+      'completed': '#10B981',
+      'delayed': '#EF4444'
+    }
+    let statusColor = '#9CA3AF'
+    if (task.orderStatus) {
+      statusColor = statusColors[task.orderStatus] || '#9CA3AF'
+    } else if (task.progress === 100) {
+      statusColor = statusColors['completed']
+    } else if (task.progress > 0) {
+      statusColor = statusColors['in-production']
+    }
+    const statusDot = {
+      type: 'circle',
+      shape: {
+        cx: x + width - 8,
+        cy: y + 8,
+        r: 5
+      },
+      style: {
+        fill: statusColor,
+        stroke: 'rgba(255,255,255,0.8)',
+        lineWidth: 1
+      },
+      silent: true
+    }
+    groupChildren.push(statusDot)
+  }
+
+  return {
+    type: 'group',
+    children: groupChildren
   }
 }
 
-// 更新图表 - 使用简化的散点图方案
+// 计算当前时间线位置
+const getCurrentTimePosition = () => {
+  const now = new Date()
+  const today = now.toISOString().split('T')[0]
+
+  if (today !== props.currentDate) return null
+
+  const currentMinutes = now.getHours() * 60 + now.getMinutes()
+  return currentMinutes
+}
+
+// 用于存储任务数据的引用，通过dataIndex访问
+let taskDataMap = []
+
+// 计算时间标签
+const timeLabels = computed(() => {
+  const mode = viewModes.find(m => m.key === internalViewMode.value) || viewModes[1]
+  const slotMinutes = mode.slotMinutes
+  const slotsPerDay = 1440 / slotMinutes  // 根据模式计算的槽数
+
+  const labels = []
+
+  for (let i = 0; i < slotsPerDay; i++) {
+    // 根据视图模式计算实际分钟数
+    const minutes = i * slotMinutes
+    const hours = Math.floor(minutes / 60)
+    const mins = minutes % 60
+    let labelText = ''
+    if (internalViewMode.value === 'minute') {
+      labelText = `${hours}:${mins.toString().padStart(2, '0')}`
+    } else if (internalViewMode.value === 'hour') {
+      labelText = `${hours}:00`
+    } else {
+      const endHour = hours + 4
+      labelText = `${hours}:00-${endHour}:00`
+    }
+
+    // 使用固定的列宽度计算位置
+    labels.push({
+      text: labelText,
+      position: 120 + i * columnWidth.value
+    })
+  }
+  return labels
+})
+
+// 计算内容宽度：槽位数 * 列宽 + 左侧区域宽度
+const contentWidth = computed(() => {
+  const mode = viewModes.find(m => m.key === internalViewMode.value) || viewModes[1]
+  const slotsPerDay = 1440 / mode.slotMinutes
+  return 120 + slotsPerDay * columnWidth.value + 30  // left margin + content + right margin
+})
+
+// 更新图表
 const updateChart = () => {
   if (!chartInstance || !zones.value.length) return
 
+  // 更新图表宽度
+  if (chartRef.value) {
+    chartWidth.value = chartRef.value.clientWidth
+  }
+
   try {
     const mode = viewModes.find(m => m.key === internalViewMode.value) || viewModes[1]
-    const slotsPerDay = 1440 / mode.slotMinutes
 
-    // 生成Y轴数据（区域）
-    const yAxisData = zones.value.map(z => z.name)
+    // 关键改动：根据视图模式设置不同的槽位数量和宽度
+    // 任务条宽度会随模式变化，浏览器原生横向滚动
+    const slotMinutes = mode.slotMinutes
+    const slotsPerDay = 1440 / slotMinutes  // 根据模式计算的槽位数
 
-    // 为每个区域创建数据系列
-    const series = zones.value.map((zone, zoneIdx) => {
-      // 获取该区域的任务
-      const zoneTasks = visibleTasks.value.filter(task => {
-        const idx = zones.value.findIndex(z => z.id === task.zoneId)
-        return idx === zoneIdx
-      })
+    // 准备数据：使用当前模式的槽位系统
+    taskDataMap = []  // 重置数据映射
+    const data = visibleTasks.value.map((task) => {
+      const zoneIndex = zones.value.findIndex(z => z.id === task.zoneId)
+      if (zoneIndex === -1) return null
 
-      // 计算每个任务的Y位置（区域内分层避免重叠）
-      const data = zoneTasks.map((task, taskIdx) => {
-        const startMinutes = parseInt(task.start.split('T')[1]?.substring(0, 2) || '0') * 60 + parseInt(task.start.split('T')[1]?.substring(3, 5) || '0')
-        const endMinutes = parseInt(task.end.split('T')[1]?.substring(0, 2) || '0') * 60 + parseInt(task.end.split('T')[1]?.substring(3, 5) || '0')
-        const duration = endMinutes - startMinutes
+      const startTime = task.start.split('T')[1] || '00:00'
+      const [startHour, startMin] = startTime.split(':').map(Number)
+      const startMinutes = startHour * 60 + startMin
 
-        // Y位置计算：每个区域占用100像素，区域内任务分层显示
-        const zoneBaseY = zoneIdx * 100
-        const rowHeight = 20
-        const row = Math.floor(taskIdx / 4)
-        const col = taskIdx % 4
-        const y = zoneBaseY + 20 + row * rowHeight
+      const endTime = task.end.split('T')[1] || '01:00'
+      const [endHour, endMin] = endTime.split(':').map(Number)
+      const endMinutes = endHour * 60 + endMin
 
-        return {
-          name: task.name,
-          value: [startMinutes, y],
-          task: task,
-          itemStyle: { color: taskTypeColors[task.customClass] || '#2196F3' },
-          orderNo: task.orderNo,
-          duration: duration,
-          symbolSize: [
-            Math.max(duration * (columnWidth / mode.slotMinutes), 30), // 宽度
-            rowHeight - 2  // 高度
-          ]
-        }
-      })
+      const durationMinutes = Math.max(endMinutes - startMinutes, 30)  // 最小30分钟
+
+      // 使用当前模式的槽位
+      const startSlot = startMinutes / slotMinutes
+      const durationSlots = durationMinutes / slotMinutes
+
+      // 存储任务引用，通过dataIndex访问
+      taskDataMap.push(task)
 
       return {
-        type: 'scatter',
-        name: zone.name,
-        coordinateSystem: 'cartesian2d',
-        data: data,
-        symbol: 'rect',
-        symbolSize: (val, params) => {
-          return params.data.symbolSize
-        },
-        label: {
-          show: true,
-          position: 'inside',
-          formatter: (params) => {
-            return params.data.orderNo || ''
-          },
-          fontSize: 10,
-          color: 'white',
-          fontWeight: 'bold'
-        },
-        itemStyle: {
-          opacity: 0.9
-        },
-        emphasis: {
-          itemStyle: {
-            opacity: 1,
-            shadowBlur: 10,
-            shadowColor: 'rgba(0,0,0,0.3)'
-          }
-        },
-        z: 10
+        value: [zoneIndex, startSlot, durationSlots]
       }
-    })
+    }).filter(d => d !== null)
+
+    // 生成网格线（基于当前模式槽位）
+    const gridLines = []
+    for (let i = 0; i <= slotsPerDay; i++) {
+      gridLines.push([i, 0])
+    }
+
+    // 当前时间线（转换为当前模式槽位）
+    const currentTimeMinutes = getCurrentTimePosition()
+    const currentTimeSlot = currentTimeMinutes !== null ? currentTimeMinutes / slotMinutes : null
 
     const option = {
       grid: {
         left: 120,
-        right: 20,
-        top: headerHeight,
-        bottom: 20
+        right: 30,
+        top: 30,
+        bottom: 30
       },
       xAxis: {
         type: 'value',
         min: 0,
-        max: 1440,
-        axisLabel: {
-          formatter: (value) => {
-            const hours = Math.floor(value / 60)
-            const mins = value % 60
-            return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`
-          }
-        },
-        axisLine: { show: true, lineStyle: { color: '#e5e7eb' } },
+        max: slotsPerDay,  // 使用当前模式的槽位数量
+        axisLabel: { show: false },
+        axisLine: { show: false },
         axisTick: { show: false },
-        splitLine: { show: true, lineStyle: { color: '#f3f4f6' } }
+        splitLine: { show: false }
       },
       yAxis: {
-        type: 'value',
-        min: 0,
-        max: zones.value.length * 100,
+        type: 'category',
+        data: zones.value.map(z => z.name),
+        axisLine: {
+          show: true,
+          lineStyle: { color: '#e5e7eb', width: 2 }
+        },
+        axisTick: { show: false },
         axisLabel: {
           fontSize: 11,
           color: '#4b5563',
-          formatter: (value) => {
-            const zoneIdx = Math.floor(value / 100)
-            if (zoneIdx >= 0 && zoneIdx < zones.value.length) {
-              return zones.value[zoneIdx].name
-            }
-            return ''
-          }
+          margin: 8
         },
-        axisLine: { show: true, lineStyle: { color: '#e5e7eb' } },
-        axisTick: { show: false },
         splitLine: {
           show: true,
           lineStyle: { color: '#e5e7eb' }
-        },
-        interval: 100
+        }
       },
       tooltip: {
         show: false
       },
-      series: series
+      series: [{
+        type: 'custom',
+        renderItem: renderGanttBar,
+        data: data,
+        coordinateSystem: 'cartesian2d',
+        encode: {
+          x: [1, 2],
+          y: 0
+        },
+        z: 10,
+        cursor: 'pointer'
+      }, {
+        // 垂直网格线
+        type: 'effectScatter',
+        data: gridLines,
+        symbolSize: 0,
+        z: 0,
+        markLine: {
+          silent: true,
+          symbol: ['none', 'none'],
+          lineStyle: { color: '#f3f4f6', width: 1 },
+          label: { show: false },
+          data: gridLines.map(([x]) => ({ coord: [x, 0] }))
+        }
+      }]
+    }
+
+    // 当前时间线
+    if (currentTimeSlot !== null) {
+      option.xAxis.markLine = {
+        data: [{
+          xAxis: currentTimeSlot,
+          label: { show: false },
+          lineStyle: { color: '#ef4444', width: 2, type: 'solid' }
+        }],
+        symbol: ['none', 'circle'],
+        symbolSize: 8,
+        z: 20
+      }
     }
 
     chartInstance.setOption(option, true)
 
+    // 确保图表尺寸正确
+    nextTick(() => {
+      chartInstance.resize()
+    })
+
     // 添加事件监听
     chartInstance.off('mouseover')
     chartInstance.off('click')
+    chartInstance.off('mouseout')
 
     chartInstance.on('mouseover', (params) => {
-      if (params.componentType === 'series') {
-        const task = params.data.task
-        showTooltip({
-          clientX: params.event.event.clientX,
-          clientY: params.event.event.clientY,
-          currentTarget: chartRef.value
-        }, task)
+      if (params.componentType === 'series' && params.seriesType === 'custom') {
+        const task = taskDataMap[params.dataIndex]
+        if (task) {
+          showTooltip({
+            clientX: params.event.event.clientX,
+            clientY: params.event.event.clientY
+          }, task)
+        }
       }
     })
 
+    chartInstance.on('mouseout', () => {
+      hideTooltip()
+    })
+
     chartInstance.on('click', (params) => {
-      if (params.componentType === 'series') {
-        const task = params.data.task
-        handleTaskClick({
-          currentTarget: chartRef.value,
-          stopPropagation: () => {},
-          event: { event: { clientX: params.event.event.clientX, clientY: params.event.event.clientY } }
-        }, task)
+      if (params.componentType === 'series' && params.seriesType === 'custom') {
+        const task = taskDataMap[params.dataIndex]
+        if (task) {
+          handleTaskClick({
+            clientX: params.event.event.clientX,
+            clientY: params.event.event.clientY,
+            stopPropagation: () => {}
+          }, task)
+        }
       }
     })
 
   } catch (error) {
     console.error('Failed to update chart:', error)
   }
+}
+
+// 显示tooltip
+const showTooltip = (event, task) => {
+  if (tooltipPinned.value) {
+    return
+  }
+
+  if (hideTooltipTimer) {
+    clearTimeout(hideTooltipTimer)
+    hideTooltipTimer = null
+  }
+
+  taskBarHovered.value = true
+
+  const x = event.clientX
+  const y = event.clientY
+
+  tooltip.value = {
+    visible: true,
+    x: x + 10,
+    y: y - 10,
+    task
+  }
+}
+
+// 处理任务条点击
+const handleTaskClick = (event, task) => {
+  const x = event.clientX
+  const y = event.clientY
+
+  tooltip.value = {
+    visible: true,
+    x: x + 10,
+    y: y - 10,
+    task
+  }
+  tooltipPinned.value = true
+
+  emit('task-click', task)
 }
 
 // 获取任务时间范围
@@ -430,48 +710,6 @@ const getStatusClass = (progress) => {
   return 'status-progress'
 }
 
-// 显示tooltip
-const showTooltip = (event, task) => {
-  if (tooltipPinned.value) {
-    return
-  }
-
-  if (hideTooltipTimer) {
-    clearTimeout(hideTooltipTimer)
-    hideTooltipTimer = null
-  }
-
-  taskBarHovered.value = true
-
-  const x = event.clientX || (event.event?.event?.clientX || 0)
-  const y = event.clientY || (event.event?.event?.clientY || 0)
-
-  tooltip.value = {
-    visible: true,
-    x: x - 5,
-    y: y,
-    task
-  }
-}
-
-// 处理任务条点击
-const handleTaskClick = (event, task) => {
-  event.stopPropagation()
-
-  const x = event.clientX || (event.event?.event?.clientX || 0)
-  const y = event.clientY || (event.event?.event?.clientY || 0)
-
-  tooltip.value = {
-    visible: true,
-    x: x - 5,
-    y: y,
-    task
-  }
-  tooltipPinned.value = true
-
-  emit('task-click', task)
-}
-
 // 隐藏tooltip
 const hideTooltip = () => {
   taskBarHovered.value = false
@@ -488,7 +726,7 @@ const hideTooltip = () => {
     if (!tooltipHovered.value && !taskBarHovered.value) {
       tooltip.value.visible = false
     }
-  }, 300)
+  }, 200)
 }
 
 // tooltip鼠标离开处理
@@ -507,7 +745,7 @@ const handleTooltipMouseLeave = () => {
     if (!tooltipHovered.value && !taskBarHovered.value) {
       tooltip.value.visible = false
     }
-  }, 300)
+  }, 200)
 }
 
 // 关闭tooltip
@@ -541,6 +779,28 @@ const goToToday = () => {
   emit('date-changed', new Date().toISOString().split('T')[0])
 }
 
+// 初始化图表
+const initChart = () => {
+  if (!chartRef.value) return
+
+  try {
+    chartInstance = echarts.init(chartRef.value, null)
+    updateChart()
+  } catch (error) {
+    console.error('Failed to initialize ECharts:', error)
+  }
+}
+
+// 监听视图模式变化
+watch(internalViewMode, () => {
+  updateChart()
+})
+
+// 监听visibleTasks变化
+watch(visibleTasks, () => {
+  updateChart()
+})
+
 onMounted(() => {
   nextTick(() => {
     initChart()
@@ -562,25 +822,6 @@ onUnmounted(() => {
   if (hideTooltipTimer) {
     clearTimeout(hideTooltipTimer)
   }
-})
-
-watch(() => props.viewMode, (newVal) => {
-  internalViewMode.value = newVal
-  nextTick(() => {
-    updateChart()
-  })
-})
-
-watch(internalViewMode, () => {
-  nextTick(() => {
-    updateChart()
-  })
-})
-
-watch([() => props.currentDate, () => props.filterTypes, () => props.filterStatuses, zones], () => {
-  nextTick(() => {
-    updateChart()
-  })
 })
 </script>
 
@@ -653,9 +894,9 @@ watch([() => props.currentDate, () => props.filterTypes, () => props.filterStatu
 }
 
 .view-btn.active {
-  background: #4CAF50;
+  background: #10b981;
   color: white;
-  border-color: #4CAF50;
+  border-color: #10b981;
 }
 
 .today-btn button {
@@ -688,11 +929,56 @@ watch([() => props.currentDate, () => props.filterTypes, () => props.filterStatu
 /* 甘特图主体 */
 .gantt-body {
   flex: 1;
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 时间标尺 */
+.time-ruler {
+  background: #f3f4f6;
+  border-bottom: 1px solid #e5e7eb;
+  height: 40px;
+  position: relative;
+  flex-shrink: 0;
+  min-width: fit-content;
 }
 
 .echarts-chart {
-  min-width: 100%;
+  min-width: fit-content;
+}
+
+.time-ruler-header {
+  position: relative;
+  height: 100%;
+  width: 100%;
+}
+
+.time-label {
+  position: absolute;
+  top: 12px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #6b7280;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  user-select: none;
+}
+
+.time-label::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 18px;
+  width: 1px;
+  height: 8px;
+  background: #e5e7eb;
+  transform: translateX(-50%);
+}
+
+.echarts-chart {
+  min-width: fit-content;
 }
 
 /* Tooltip */
@@ -706,9 +992,6 @@ watch([() => props.currentDate, () => props.filterTypes, () => props.filterStatu
   min-width: 200px;
   border: 1px solid #e5e7eb;
   animation: tooltipFadeIn 0.15s ease-out;
-  margin-left: -15px;
-  margin-top: -10px;
-  margin-bottom: -10px;
   padding: 10px 0 10px 15px;
 }
 
